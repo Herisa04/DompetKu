@@ -2463,6 +2463,11 @@ async function saveGoal() {
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
 document.querySelectorAll('.modal-overlay').forEach(m => {
+  // Prevent clicks inside modal content from bubbling to overlay
+  const modalContent = m.querySelector('.modal');
+  if (modalContent) {
+    modalContent.addEventListener('click', e => e.stopPropagation());
+  }
   m.addEventListener('click', e => {
     if (e.target !== m) return;
     if (m.id === 'confirm-modal') { confirmResolve(false); return; }
@@ -2597,34 +2602,35 @@ async function updateCatPreview() {
 }
 
 async function saveCat() {
-  const name = document.getElementById('cat-name').value.trim();
-  const icon = document.getElementById('cat-icon').value || catSelectedIcon;
-  const color = document.getElementById('cat-color').value || catSelectedColor;
-  const type = document.getElementById('cat-type').value;
-  const editName = document.getElementById('cat-edit-name').value;
-  if (!name) { toast('⚠️ Masukkan nama kategori'); return; }
+  try {
+    const name = document.getElementById('cat-name').value.trim();
+    const icon = document.getElementById('cat-icon').value || catSelectedIcon;
+    const color = document.getElementById('cat-color').value || catSelectedColor;
+    const type = document.getElementById('cat-type').value;
+    const editName = document.getElementById('cat-edit-name').value;
+    if (!name) { toast('⚠️ Masukkan nama kategori'); return; }
 
-  const key = type === 'exp' ? 'expCats' : 'incCats';
-  let cats = [...(state[key] || [])];
+    const key = type === 'exp' ? 'expCats' : 'incCats';
+    let cats = [...(state[key] || [])];
 
-  if (editName) {
-    const idx = cats.findIndex(c => c.name === editName);
-    if (idx >= 0) {
-      // Also update transactions that use old name
-      state.transactions = state.transactions.map(t =>
-        t.cat === editName && t.type === type ? {...t, cat: name} : t
-      );
-      cats[idx] = { name, icon, color };
+    if (editName) {
+      const idx = cats.findIndex(c => c.name === editName);
+      if (idx >= 0) {
+        state.transactions = state.transactions.map(t =>
+          t.cat === editName && t.type === type ? {...t, cat: name} : t
+        );
+        cats[idx] = { name, icon, color };
+      }
+    } else {
+      if (cats.find(c => c.name === name)) { toast('⚠️ Nama sudah ada'); return; }
+      cats.push({ name, icon, color });
     }
-  } else {
-    if (cats.find(c => c.name === name)) { toast('⚠️ Nama sudah ada'); return; }
-    cats.push({ name, icon, color });
-  }
-  state[key] = cats;
-  await saveData();
-  closeModal('cat-modal');
-  renderCategories();
-  toast(`✅ Kategori "${name}" disimpan`);
+    state[key] = cats;
+    await saveData();
+    closeModal('cat-modal');
+    renderCategories();
+    toast(`✅ Kategori "${name}" disimpan`);
+  } catch(e) { console.error('saveCat error:', e); toast('⚠️ Gagal menyimpan kategori'); }
 }
 
 async function deleteCat(type, name) {
