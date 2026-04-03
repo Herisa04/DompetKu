@@ -282,6 +282,10 @@
 <div class="loading-screen" id="loading-screen">
   <div class="loading-logo">💰</div>
   <div class="loading-text">Memuat DompetKu...</div>
+  <div id="loading-hint" style="display:none;margin-top:20px;text-align:center">
+    <div style="color:#5a5a72;font-size:0.75rem;font-family:'DM Mono',monospace;margin-bottom:10px">Koneksi lambat? Coba reset</div>
+    <button onclick="emergencyReset()" style="background:#1e1e28;border:1px solid #333345;color:#8b83ff;padding:8px 20px;border-radius:8px;font-family:'Syne',sans-serif;font-size:0.8rem;cursor:pointer">🔄 Reset & Login Ulang</button>
+  </div>
 </div>
 
 <!-- AUTH SCREEN -->
@@ -1382,10 +1386,51 @@ async function initApp(user) {
   showScreen('app');
 }
 
+// Tampilkan hint reset setelah 3 detik
+setTimeout(() => {
+  const hint = document.getElementById('loading-hint');
+  if (hint && document.getElementById('loading-screen').style.display !== 'none') {
+    hint.style.display = 'block';
+  }
+}, 3000);
+
+async function emergencyReset() {
+  try { await sb.auth.signOut(); } catch(e) {}
+  Object.keys(localStorage).forEach(k => {
+    if (k.startsWith('sb-') || k.includes('supabase')) localStorage.removeItem(k);
+  });
+  showScreen('auth');
+  toast('🔄 Session direset, silakan login kembali');
+}
+
+// AUTO-RECOVERY: kalau loading > 6 detik, otomatis reset session
+const loadingTimeout = setTimeout(async () => {
+  const loadingEl = document.getElementById('loading-screen');
+  if (loadingEl && loadingEl.style.display !== 'none') {
+    console.warn('Loading timeout — auto recovering...');
+    try {
+      await sb.auth.signOut();
+    } catch(e) {}
+    // Clear supabase keys from localStorage
+    Object.keys(localStorage).forEach(k => {
+      if (k.startsWith('sb-') || k.includes('supabase')) localStorage.removeItem(k);
+    });
+    showScreen('auth');
+  }
+}, 6000);
+
 // SUPABASE AUTH LISTENER
 sb.auth.onAuthStateChange(async (event, session) => {
+  clearTimeout(loadingTimeout);
   if (session?.user) {
-    await initApp(session.user);
+    try {
+      await initApp(session.user);
+    } catch(e) {
+      console.error('Init error:', e);
+      await sb.auth.signOut();
+      showScreen('auth');
+      toast('⚠️ Terjadi kesalahan, silakan login kembali');
+    }
   } else {
     showScreen('auth');
   }
@@ -1393,8 +1438,16 @@ sb.auth.onAuthStateChange(async (event, session) => {
 
 // Initial session check
 (async () => {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) { showScreen('auth'); }
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+      clearTimeout(loadingTimeout);
+      showScreen('auth');
+    }
+  } catch(e) {
+    clearTimeout(loadingTimeout);
+    showScreen('auth');
+  }
 })();
 </script>
 </body>
