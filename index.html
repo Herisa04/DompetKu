@@ -1497,7 +1497,7 @@ const DEFAULT_INC_CATS = [
   { name:'Lainnya', icon:'💰', color:'#94a3b8' },
 ];
 
-async function migrateCats(existing, defaults) {
+function migrateCats(existing, defaults) {
   const existingNames = existing.map(c => c.name.toLowerCase());
   const toAdd = defaults.filter(c => !existingNames.includes(c.name.toLowerCase()));
   if (toAdd.length) existing.push(...toAdd);
@@ -1540,7 +1540,8 @@ async function saveData() {
   if (!currentUser) return;
   setSyncing(true);
   try {
-    await sb.from('user_data').upsert({ user_id: currentUser.id, data: state, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    const { error } = await sb.from('user_data').upsert({ user_id: currentUser.id, data: state, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (error) console.error('Supabase save error:', error.message, error);
   } catch(e) { console.error('Save error:', e); }
   setSyncing(false);
 }
@@ -1885,7 +1886,7 @@ function emptyHTML(msg) {
   return `<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">${msg}</div></div>`;
 }
 
-async function renderTransactions() {
+function renderTransactions() {
   const ym = getSelectedMonth('tx-month-filter');
   const search = (document.getElementById('tx-search')||{}).value||'';
   const typeF = (document.getElementById('tx-type-filter')||{}).value||'';
@@ -2107,7 +2108,7 @@ async function deleteGoal(id) {
   });
 }
 
-async function addToGoal(id) {
+function addToGoal(id) {
   const g = state.goals.find(g=>g.id===id);
   if (!g) return;
   document.getElementById('add-goal-id').value = id;
@@ -2364,7 +2365,7 @@ async function saveTx() {
   await saveData(); closeModal('tx-modal'); renderAll();
 }
 
-async function openBudgetModal() {
+function openBudgetModal() {
   document.getElementById('budget-modal').classList.add('open');
   // Reset modal ke mode tambah (bukan edit)
   document.querySelector('#budget-modal .modal-title').textContent = 'Buat Anggaran';
@@ -2397,7 +2398,7 @@ async function saveBudget() {
   await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran disimpan');
 }
 
-async function openAccountModal() {
+function openAccountModal() {
   document.getElementById('account-modal').classList.add('open');
   document.querySelector('#account-modal .modal-title').textContent = 'Tambah Rekening';
   document.querySelector('#account-modal .btn-primary').textContent = 'Simpan';
@@ -2430,12 +2431,12 @@ function openGoalModal() {
   toggleGoalCurrentField('');
 }
 
-async function toggleGoalCurrentField(linkedAccId) {
+function toggleGoalCurrentField(linkedAccId) {
   const wrapper = document.getElementById('goal-current-wrapper');
   if (wrapper) wrapper.style.display = linkedAccId ? 'none' : '';
 }
 
-async function populateGoalAccountSelect(selectedId) {
+function populateGoalAccountSelect(selectedId) {
   const sel = document.getElementById('goal-account');
   if (!sel) return;
   sel.innerHTML = '<option value="">— Tidak dihubungkan —</option>';
@@ -2463,12 +2464,8 @@ async function saveGoal() {
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
 document.querySelectorAll('.modal-overlay').forEach(m => {
-  // Prevent clicks inside modal content from bubbling to overlay
-  const modalContent = m.querySelector('.modal');
-  if (modalContent) {
-    modalContent.addEventListener('click', e => e.stopPropagation());
-  }
-  m.addEventListener('click', e => {
+  m.addEventListener('mousedown', e => {
+    // Only close if mousedown directly on the overlay backdrop itself
     if (e.target !== m) return;
     if (m.id === 'confirm-modal') { confirmResolve(false); return; }
     m.classList.remove('open');
@@ -2590,7 +2587,7 @@ function selectColor(color) {
   updateCatPreview();
 }
 
-async function updateCatPreview() {
+function updateCatPreview() {
   const name = document.getElementById('cat-name').value || 'Nama Kategori';
   const icon = catSelectedIcon;
   const color = catSelectedColor;
@@ -2602,35 +2599,35 @@ async function updateCatPreview() {
 }
 
 async function saveCat() {
-  try {
-    const name = document.getElementById('cat-name').value.trim();
-    const icon = document.getElementById('cat-icon').value || catSelectedIcon;
-    const color = document.getElementById('cat-color').value || catSelectedColor;
-    const type = document.getElementById('cat-type').value;
-    const editName = document.getElementById('cat-edit-name').value;
-    if (!name) { toast('⚠️ Masukkan nama kategori'); return; }
+  const name = document.getElementById('cat-name').value.trim();
+  const icon = document.getElementById('cat-icon').value || catSelectedIcon;
+  const color = document.getElementById('cat-color').value || catSelectedColor;
+  const type = document.getElementById('cat-type').value;
+  const editName = document.getElementById('cat-edit-name').value;
+  if (!name) { toast('⚠️ Masukkan nama kategori'); return; }
 
-    const key = type === 'exp' ? 'expCats' : 'incCats';
-    let cats = [...(state[key] || [])];
+  const key = type === 'exp' ? 'expCats' : 'incCats';
+  let cats = [...(state[key] || [])];
 
-    if (editName) {
-      const idx = cats.findIndex(c => c.name === editName);
-      if (idx >= 0) {
+  if (editName) {
+    const idx = cats.findIndex(c => c.name === editName);
+    if (idx >= 0) {
+      if (state.transactions) {
         state.transactions = state.transactions.map(t =>
           t.cat === editName && t.type === type ? {...t, cat: name} : t
         );
-        cats[idx] = { name, icon, color };
       }
-    } else {
-      if (cats.find(c => c.name === name)) { toast('⚠️ Nama sudah ada'); return; }
-      cats.push({ name, icon, color });
+      cats[idx] = { name, icon, color };
     }
-    state[key] = cats;
-    await saveData();
-    closeModal('cat-modal');
-    renderCategories();
-    toast(`✅ Kategori "${name}" disimpan`);
-  } catch(e) { console.error('saveCat error:', e); toast('⚠️ Gagal menyimpan kategori'); }
+  } else {
+    if (cats.find(c => c.name === name)) { toast('⚠️ Nama sudah ada'); return; }
+    cats.push({ name, icon, color });
+  }
+  state[key] = cats;
+  await saveData();
+  closeModal('cat-modal');
+  renderCategories();
+  toast(`✅ Kategori "${name}" disimpan`);
 }
 
 async function deleteCat(type, name) {
@@ -2651,7 +2648,7 @@ document.addEventListener('input', e => {
   if (e.target.id === 'cat-name') updateCatPreview();
 });
 
-async function editAccount(id) {
+function editAccount(id) {
   const a = state.accounts.find(a=>a.id===id);
   if (!a) return;
   // Reuse account modal, prefill data
@@ -2680,7 +2677,7 @@ async function saveEditAccount(id) {
   toast('✅ Rekening diperbarui');
 }
 
-async function editBudget(id) {
+function editBudget(id) {
   const b = state.budgets.find(b=>b.id===id);
   if (!b) return;
   openBudgetModal();
@@ -2704,7 +2701,7 @@ async function saveEditBudget(id) {
   await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran diperbarui');
 }
 
-async function editGoal(id) {
+function editGoal(id) {
   const g = state.goals.find(g=>g.id===id);
   if (!g) return;
   openGoalModal();
@@ -2860,7 +2857,7 @@ async function _doSaveCashEdit(amount, desc, date, oldCash) {
   toast('✅ Transaksi cash diperbarui');
 }
 
-async function openEditCashBalance() {
+function openEditCashBalance() {
   document.getElementById('cash-adjust-amount').value = state.cash||0;
   document.getElementById('cash-adjust-modal').classList.add('open');
 }
@@ -3060,7 +3057,7 @@ function setDebtType(type) {
   }
 }
 
-async function closeDebtModal() {
+function closeDebtModal() {
   closeModal('debt-modal');
   editingDebtId = null;
 }
@@ -3123,7 +3120,7 @@ function openDebtPayModal(id, editIdx = null) {
   document.getElementById('debt-pay-modal').classList.add('open');
 }
 
-async function editPayment(debtId, payIdx) {
+function editPayment(debtId, payIdx) {
   openDebtPayModal(debtId, payIdx);
 }
 
