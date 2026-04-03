@@ -2733,39 +2733,38 @@ async function saveEditGoal(id) {
 // CASH
 // ============================================================
 function renderCash() {
-  const cash = state.cash || 0;
   const log = state.cashLog || [];
-  // Hanya hitung tipe 'in' dan 'out' — TIDAK termasuk 'adjust'
+  // Hitung total masuk dan keluar dari semua log (in/out), TIDAK termasuk adjust
   const totalIn  = log.filter(l=>l.type==='in').reduce((s,l)=>s+l.amount,0);
   const totalOut = log.filter(l=>l.type==='out').reduce((s,l)=>s+l.amount,0);
   const lastLog  = log.length ? log[log.length-1] : null;
 
-  document.getElementById('cash-balance-display').textContent = fmtShort(cash);
+  // Saldo = state.cash (yang sudah di-set oleh Edit Saldo atau dihitung dari transaksi)
+  document.getElementById('cash-balance-display').textContent = fmtShort(state.cash||0);
   document.getElementById('cash-total-in').textContent  = fmtShort(totalIn);
   document.getElementById('cash-total-out').textContent = fmtShort(totalOut);
   document.getElementById('cash-last-update').textContent = lastLog
     ? `Terakhir diperbarui: ${fmtDate(lastLog.date)}` : 'Belum ada aktivitas';
 
+  // Filter out adjust entries from display
+  const displayLog = log.filter(l => l.type !== 'adjust');
   const el = document.getElementById('cash-log-list');
-  if (!log.length) { el.innerHTML = emptyHTML('Belum ada riwayat cash'); return; }
-  el.innerHTML = [...log].reverse().map(l => {
-    const isAdj = l.type === 'adjust';
-    const dispType = isAdj ? l.adjSign||'in' : l.type;
-    const isIn = dispType === 'in';
-    const iconBg = isAdj ? 'rgba(108,99,255,0.15)' : (isIn ? 'rgba(45,212,160,0.15)' : 'rgba(255,95,126,0.15)');
-    const iconColor = isAdj ? 'var(--accent2)' : (isIn ? 'var(--green)' : 'var(--red)');
-    const icon = isAdj ? '⚖️' : (isIn ? '📥' : '📤');
-    const amtColor = isAdj ? 'var(--accent2)' : (isIn ? 'var(--green)' : 'var(--red)');
-    const amtPrefix = isAdj ? (isIn ? '▲' : '▼') : (isIn ? '+' : '-');
-    const canEdit = !l.fromTxId && !isAdj;
+  if (!displayLog.length) { el.innerHTML = emptyHTML('Belum ada riwayat cash'); return; }
+  el.innerHTML = [...displayLog].reverse().map(l => {
+    const isIn = l.type === 'in';
+    const iconBg = isIn ? 'rgba(45,212,160,0.15)' : 'rgba(255,95,126,0.15)';
+    const iconColor = isIn ? 'var(--green)' : 'var(--red)';
+    const icon = isIn ? '📥' : '📤';
+    const amtColor = isIn ? 'var(--green)' : 'var(--red)';
+    const amtPrefix = isIn ? '+' : '-';
+    const canEdit = !l.fromTxId;
     return `
     <div class="tx-item">
       <div class="tx-icon" style="background:${iconBg};color:${iconColor}">${icon}</div>
       <div class="tx-info">
-        <div class="tx-name">${l.desc || (isAdj ? 'Penyesuaian Saldo' : (isIn ? 'Cash masuk' : 'Cash keluar'))}</div>
+        <div class="tx-name">${l.desc || (isIn ? 'Cash masuk' : 'Cash keluar')}</div>
         <div class="tx-meta">
           ${l.fromTxId ? '<span style="background:var(--accent-glow);color:var(--accent2);padding:1px 6px;border-radius:4px;font-size:0.65rem;margin-right:4px">dari Transaksi</span>' : ''}
-          ${isAdj ? '<span style="background:rgba(108,99,255,0.15);color:var(--accent2);padding:1px 6px;border-radius:4px;font-size:0.65rem;margin-right:4px">⚖️ Sesuaikan</span>' : ''}
           ${fmtDate(l.date)}
         </div>
       </div>
@@ -2773,7 +2772,7 @@ function renderCash() {
       ${canEdit ? `
         <button class="tx-edit" onclick="editCashLog(${l.id})" title="Edit">✏️</button>
         <button class="tx-delete" onclick="deleteCashLog(${l.id})" title="Hapus">✕</button>
-      ` : (!l.fromTxId && isAdj ? `<button class="tx-delete" onclick="deleteCashLog(${l.id})" title="Hapus">✕</button>` : '')}
+      ` : ''}
     </div>`;
   }).join('');
 }
@@ -2795,7 +2794,7 @@ function openCashModal(type) {
 
 function editCashLog(id) {
   const l = (state.cashLog||[]).find(l=>l.id===id);
-  if (!l || l.type === 'adjust') return; // adjust tidak bisa diedit
+  if (!l) return;
   editingCashId = id;
   currentCashType = l.type;
   document.getElementById('cash-modal-title').textContent = l.type==='in' ? '✏️ Edit Cash Masuk' : '✏️ Edit Cash Keluar';
@@ -2859,24 +2858,10 @@ async function openEditCashBalance() {
   document.getElementById('cash-adjust-amount').value = state.cash||0;
   document.getElementById('cash-adjust-modal').classList.add('open');
 }
-// Keep old name as alias so nothing breaks
-const openCashAdjust = openEditCashBalance;
 
 async function saveCashAdjust() {
   const newAmount = parseFloat(document.getElementById('cash-adjust-amount').value);
   if (isNaN(newAmount) || newAmount < 0) { toast('⚠️ Masukkan jumlah yang valid'); return; }
-  const diff = newAmount - (state.cash || 0);
-  if (diff !== 0) {
-    if (!state.cashLog) state.cashLog = [];
-    state.cashLog.push({
-      id: ++state.nextId,
-      type: 'adjust',
-      adjSign: diff > 0 ? 'in' : 'out',
-      amount: Math.abs(diff),
-      desc: 'Penyesuaian saldo manual',
-      date: new Date().toISOString().slice(0, 10)
-    });
-  }
   state.cash = newAmount;
   await saveData();
   closeModal('cash-adjust-modal');
@@ -2888,13 +2873,11 @@ async function saveCashAdjust() {
 async function deleteCashLog(id) {
   const log = state.cashLog.find(l=>l.id===id);
   if (!log) return;
-  // Revert saldo sesuai tipe
-  if (log.type === 'adjust') {
-    // Sesuaikan: revert berarti balik arahnya
-    const wasIn = (log.adjSign || 'in') === 'in';
-    state.cash = Math.max(0, (state.cash||0) + (wasIn ? -log.amount : log.amount));
-  } else {
-    state.cash = Math.max(0, (state.cash||0) + (log.type==='in' ? -log.amount : log.amount));
+  // Revert saldo: undo this transaction
+  if (log.type === 'in') {
+    state.cash = Math.max(0, (state.cash||0) - log.amount);
+  } else if (log.type === 'out') {
+    state.cash = (state.cash||0) + log.amount;
   }
   state.cashLog = state.cashLog.filter(l=>l.id!==id);
   await saveData(); renderCash(); renderDashboard();
