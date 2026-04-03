@@ -226,10 +226,6 @@
   .bn-label { font-size: 0.58rem; }
   .bn-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); position: absolute; bottom: -2px; }
 
-  /* DROP ZONE */
-  #drop-zone:hover, #drop-zone.drag-over { border-color: var(--accent); background: var(--accent-glow); }
-  #drop-zone.drag-over { transform: scale(1.01); }
-
   /* CONFIRM MODAL */
   .confirm-modal { max-width: 380px; text-align: center; }
   .confirm-icon { font-size: 3rem; margin-bottom: 12px; }
@@ -727,8 +723,8 @@
     <div class="confirm-title" id="confirm-title">Konfirmasi</div>
     <div class="confirm-msg" id="confirm-msg">Apakah kamu yakin?</div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" id="confirm-cancel-btn" onclick="confirmResolve(false)">Batal</button>
-      <button class="btn btn-primary" id="confirm-ok-btn" onclick="confirmResolve(true)">Ya</button>
+      <button class="btn btn-ghost" id="confirm-cancel-btn">Batal</button>
+      <button class="btn btn-primary" id="confirm-ok-btn">Ya</button>
     </div>
   </div>
 </div>
@@ -1386,52 +1382,42 @@ async function initApp(user) {
   showScreen('app');
 }
 
+let isAppLoaded = false;
+
 // Tampilkan hint reset setelah 3 detik
 setTimeout(() => {
-  const hint = document.getElementById('loading-hint');
-  if (hint && document.getElementById('loading-screen').style.display !== 'none') {
-    hint.style.display = 'block';
+  if (!isAppLoaded) {
+    const hint = document.getElementById('loading-hint');
+    if (hint) hint.style.display = 'block';
   }
 }, 3000);
 
-async function emergencyReset() {
-  try { await sb.auth.signOut(); } catch(e) {}
-  Object.keys(localStorage).forEach(k => {
-    if (k.startsWith('sb-') || k.includes('supabase')) localStorage.removeItem(k);
-  });
-  showScreen('auth');
-  toast('🔄 Session direset, silakan login kembali');
+function emergencyReset() {
+  try { Object.keys(localStorage).forEach(k => localStorage.removeItem(k)); } catch(e) {}
+  window.location.href = window.location.href.split('?')[0] + '?reset=' + Date.now();
 }
 
-// AUTO-RECOVERY: kalau loading > 6 detik, otomatis reset session
-const loadingTimeout = setTimeout(async () => {
-  const loadingEl = document.getElementById('loading-screen');
-  if (loadingEl && loadingEl.style.display !== 'none') {
-    console.warn('Loading timeout — auto recovering...');
-    try {
-      await sb.auth.signOut();
-    } catch(e) {}
-    // Clear supabase keys from localStorage
-    Object.keys(localStorage).forEach(k => {
-      if (k.startsWith('sb-') || k.includes('supabase')) localStorage.removeItem(k);
-    });
-    showScreen('auth');
-  }
-}, 6000);
+// AUTO-RECOVERY: kalau loading > 7 detik, otomatis reset
+const loadingTimeout = setTimeout(() => {
+  if (!isAppLoaded) emergencyReset();
+}, 7000);
 
 // SUPABASE AUTH LISTENER
 sb.auth.onAuthStateChange(async (event, session) => {
-  clearTimeout(loadingTimeout);
   if (session?.user) {
     try {
       await initApp(session.user);
+      isAppLoaded = true;
+      clearTimeout(loadingTimeout);
     } catch(e) {
       console.error('Init error:', e);
-      await sb.auth.signOut();
+      try { await sb.auth.signOut(); } catch(e2) {}
       showScreen('auth');
       toast('⚠️ Terjadi kesalahan, silakan login kembali');
     }
   } else {
+    isAppLoaded = true;
+    clearTimeout(loadingTimeout);
     showScreen('auth');
   }
 });
@@ -1441,10 +1427,12 @@ sb.auth.onAuthStateChange(async (event, session) => {
   try {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) {
+      isAppLoaded = true;
       clearTimeout(loadingTimeout);
       showScreen('auth');
     }
   } catch(e) {
+    isAppLoaded = true;
     clearTimeout(loadingTimeout);
     showScreen('auth');
   }
