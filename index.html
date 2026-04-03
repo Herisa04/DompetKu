@@ -1077,13 +1077,14 @@ function renderTransactions() {
   el.innerHTML=txs.length?txs.map(t=>txHTML(t)).join(''):emptyHTML('Tidak ada transaksi');
 }
 async function deleteTx(id) {
-  id = Number(id);
+  try { id=Number(id);
   const ok=await showConfirm('Hapus transaksi ini?','Hapus Transaksi','🗑️','Ya, Hapus');
   if(!ok)return;
   const t=state.transactions.find(t=>t.id===id);
   if(t)updateCashFromTx(t.type,t.amount,t.account,true,t.desc,t.date,id);
   state.transactions=state.transactions.filter(t=>t.id!==id);
   await saveData(); renderAll(); toast('🗑 Transaksi dihapus');
+  } catch(e) { console.error('deleteTx error:', e); toast('⚠️ Gagal menghapus'); }
 }
 function updateAccountSelects() {
   const sel=document.getElementById('tx-account'); if(!sel)return;
@@ -1106,8 +1107,7 @@ function openModal() {
   document.getElementById('tx-modal').classList.add('open');
 }
 function editTx(id) {
-  id = Number(id);
-  const t=state.transactions.find(t=>t.id===id); if(!t)return;
+  id=Number(id); const t=state.transactions.find(t=>t.id===id); if(!t)return;
   editingTxId=id; currentTxType=t.type;
   document.querySelector('#tx-modal .modal-title').textContent='✏️ Edit Transaksi';
   setTxType(t.type); updateCatSelect();
@@ -1126,11 +1126,13 @@ function updateCatSelect() {
   sel.innerHTML=cats.map(c=>`<option value="${c.name}">${c.icon} ${c.name}</option>`).join('');
 }
 async function saveTx() {
+  try {
   const amount=parseFloat(document.getElementById('tx-amount').value); const desc=document.getElementById('tx-desc').value.trim(); const cat=document.getElementById('tx-cat').value; const account=document.getElementById('tx-account').value; const date=document.getElementById('tx-date').value;
   if(!amount||amount<=0||!desc||!date){toast('⚠️ Lengkapi semua field');return;}
   if(editingTxId!==null){ const old=state.transactions.find(t=>t.id===editingTxId); if(old)updateCashFromTx(old.type,old.amount,old.account,true,old.desc,old.date,editingTxId); state.transactions=state.transactions.map(t=>t.id===editingTxId?{...t,type:currentTxType,amount,desc,cat,account,date}:t); updateCashFromTx(currentTxType,amount,account,false,desc,date,editingTxId); toast('✅ Transaksi diperbarui'); }
   else { const newId=++state.nextId; const tx={id:newId,type:currentTxType,amount,desc,cat,account,date}; state.transactions.push(tx); updateCashFromTx(currentTxType,amount,account,false,desc,date,newId); toast('✅ Transaksi disimpan'); }
   editingTxId=null; await saveData(); closeModal('tx-modal'); renderAll();
+  } catch(e) { console.error('saveTx error:', e); toast('⚠️ Gagal menyimpan'); }
 }
 
 // ============================================================
@@ -1146,9 +1148,9 @@ function renderBudget() {
   else{el.innerHTML=budgets.map(b=>{ const spent=txs.filter(t=>t.cat===b.cat).reduce((s,t)=>s+t.amount,0); const pct=Math.min(100,Math.round(spent/b.amount*100)); const color=pct>90?'#ff5f7e':pct>70?'#ffc14d':'#2dd4a0'; const ci=getCatInfo(b.cat,'exp'); return `<div class="budget-item"><div class="budget-header"><div class="budget-name">${ci.icon} ${b.cat}<span class="badge ${pct>100?'red':pct>70?'yellow':'green'}">${pct}%</span></div><div style="display:flex;align-items:center;gap:8px"><div class="budget-amounts">${fmtShort(spent)} / ${fmtShort(b.amount)}</div><button onclick="editBudget(${b.id})" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:0.8rem;padding:2px 4px;border-radius:4px">✏️</button><button onclick="deleteBudget(${b.id})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.8rem;padding:2px 4px;border-radius:4px">✕</button></div></div><div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${color}"></div></div><div class="progress-label"><span>Sisa ${fmtShort(Math.max(0,b.amount-spent))}</span><span>${pct>100?'⚠️ Melebihi batas':''}</span></div></div>`; }).join('');}
   renderBudgetChart(ym);
 }
-async function deleteBudget(id) { id=Number(id); const ok=await showConfirm('Hapus anggaran ini?','Hapus Anggaran','🗑️','Ya, Hapus'); if(!ok)return; state.budgets=state.budgets.filter(b=>b.id!==id); await saveData(); renderBudget(); toast('🗑 Anggaran dihapus'); }
+async function deleteBudget(id) { try { id=Number(id); const ok=await showConfirm('Hapus anggaran ini?','Hapus Anggaran','🗑️','Ya, Hapus'); if(!ok)return; state.budgets=state.budgets.filter(b=>b.id!==id); await saveData(); renderBudget(); toast('🗑 Anggaran dihapus'); } catch(e){console.error(e);toast('⚠️ Error');} }
 function editBudget(id) { id=Number(id); const b=state.budgets.find(b=>b.id===id); if(!b)return; openBudgetModal(); setTimeout(()=>{ document.getElementById('bud-cat').value=b.cat; document.getElementById('bud-amount').value=b.amount; document.getElementById('bud-month').value=b.month; document.querySelector('#budget-modal .modal-title').textContent='✏️ Edit Anggaran'; document.querySelector('#budget-modal .btn-primary').onclick=()=>updateBudget(id); },50); }
-async function updateBudget(id) { const cat=document.getElementById('bud-cat').value; const amount=parseFloat(document.getElementById('bud-amount').value); const month=document.getElementById('bud-month').value; if(!amount||amount<=0){toast('⚠️ Masukkan jumlah anggaran');return;} state.budgets=state.budgets.map(b=>b.id===id?{...b,cat,amount,month}:b); await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran diperbarui'); }
+async function updateBudget(id) { try { id=Number(id); const cat=document.getElementById('bud-cat').value; const amount=parseFloat(document.getElementById('bud-amount').value); const month=document.getElementById('bud-month').value; if(!amount||amount<=0){toast('⚠️ Masukkan jumlah anggaran');return;} state.budgets=state.budgets.map(b=>b.id===id?{...b,cat,amount,month}:b); await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran diperbarui'); } catch(e){console.error(e);toast('⚠️ Error');} }
 function openBudgetModal() {
   document.getElementById('budget-modal').classList.add('open');
   document.querySelector('#budget-modal .modal-title').textContent='Buat Anggaran';
@@ -1160,7 +1162,7 @@ function openBudgetModal() {
   for(let i=-1;i<11;i++){ const d=new Date(n.getFullYear(),n.getMonth()+i,1); const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; const o=document.createElement('option'); o.value=ym; o.textContent=d.toLocaleDateString('id-ID',{month:'long',year:'numeric'}); bm.appendChild(o); }
   bm.value=currentYM();
 }
-async function saveBudget() { const cat=document.getElementById('bud-cat').value; const amount=parseFloat(document.getElementById('bud-amount').value); const month=document.getElementById('bud-month').value; if(!amount||amount<=0){toast('⚠️ Masukkan jumlah anggaran');return;} const existing=state.budgets.findIndex(b=>b.cat===cat&&b.month===month); if(existing>=0){state.budgets[existing].amount=amount;}else{state.budgets.push({id:++state.nextId,cat,amount,month});} await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran disimpan'); }
+async function saveBudget() { try { const cat=document.getElementById('bud-cat').value; const amount=parseFloat(document.getElementById('bud-amount').value); const month=document.getElementById('bud-month').value; if(!amount||amount<=0){toast('⚠️ Masukkan jumlah anggaran');return;} const existing=state.budgets.findIndex(b=>b.cat===cat&&b.month===month); if(existing>=0){state.budgets[existing].amount=amount;}else{state.budgets.push({id:++state.nextId,cat,amount,month});} await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran disimpan'); } catch(e){console.error(e);toast('⚠️ Error');} }
 
 // ============================================================
 // ACCOUNTS
@@ -1175,9 +1177,9 @@ function renderAccounts() {
 }
 function openAccountModal() { document.getElementById('account-modal').classList.add('open'); document.querySelector('#account-modal .modal-title').textContent='Tambah Rekening'; document.querySelector('#account-modal .btn-primary').textContent='Simpan'; document.querySelector('#account-modal .btn-primary').onclick=saveAccount; document.getElementById('acc-name').value=''; document.getElementById('acc-number').value=''; document.getElementById('acc-balance').value=''; }
 function editAccount(id) { id=Number(id); const a=state.accounts.find(a=>a.id===id); if(!a)return; openAccountModal(); setTimeout(()=>{ document.getElementById('acc-bank').value=a.bank; document.getElementById('acc-name').value=a.name||''; document.getElementById('acc-number').value=a.number||''; document.getElementById('acc-balance').value=a.balance||0; document.querySelector('#account-modal .modal-title').textContent='✏️ Edit Rekening'; document.querySelector('#account-modal .btn-primary').onclick=()=>updateAccount(id); },50); }
-async function updateAccount(id) { const bank=document.getElementById('acc-bank').value; const name=document.getElementById('acc-name').value.trim(); const number=document.getElementById('acc-number').value.trim(); const balance=parseFloat(document.getElementById('acc-balance').value)||0; state.accounts=state.accounts.map(a=>a.id===id?{...a,bank,name,number,balance}:a); await saveData(); closeModal('account-modal'); renderAccounts(); updateAccountSelects(); toast('✅ Rekening diperbarui'); }
-async function saveAccount() { const bank=document.getElementById('acc-bank').value; const name=document.getElementById('acc-name').value.trim(); const number=document.getElementById('acc-number').value.trim(); const balance=parseFloat(document.getElementById('acc-balance').value)||0; state.accounts.push({id:++state.nextId,bank,name,number,balance}); await saveData(); closeModal('account-modal'); renderAccounts(); updateAccountSelects(); toast('✅ Rekening ditambahkan'); }
-async function deleteAccount(id) { id=Number(id); const ok=await showConfirm('Hapus rekening ini?','Hapus Rekening','🗑️','Ya, Hapus',true); if(!ok)return; state.accounts=state.accounts.filter(a=>a.id!==id); await saveData(); renderAccounts(); updateAccountSelects(); toast('🗑 Rekening dihapus'); }
+async function updateAccount(id) { try { id=Number(id); const bank=document.getElementById('acc-bank').value; const name=document.getElementById('acc-name').value.trim(); const number=document.getElementById('acc-number').value.trim(); const balance=parseFloat(document.getElementById('acc-balance').value)||0; state.accounts=state.accounts.map(a=>a.id===id?{...a,bank,name,number,balance}:a); await saveData(); closeModal('account-modal'); renderAccounts(); updateAccountSelects(); toast('✅ Rekening diperbarui'); } catch(e){console.error(e);toast('⚠️ Error');} }
+async function saveAccount() { try { const bank=document.getElementById('acc-bank').value; const name=document.getElementById('acc-name').value.trim(); const number=document.getElementById('acc-number').value.trim(); const balance=parseFloat(document.getElementById('acc-balance').value)||0; state.accounts.push({id:++state.nextId,bank,name,number,balance}); await saveData(); closeModal('account-modal'); renderAccounts(); updateAccountSelects(); toast('✅ Rekening ditambahkan'); } catch(e){console.error(e);toast('⚠️ Error');} }
+async function deleteAccount(id) { try { id=Number(id); const ok=await showConfirm('Hapus rekening ini?','Hapus Rekening','🗑️','Ya, Hapus',true); if(!ok)return; state.accounts=state.accounts.filter(a=>a.id!==id); await saveData(); renderAccounts(); updateAccountSelects(); toast('🗑 Rekening dihapus'); } catch(e){console.error(e);toast('⚠️ Error');} }
 
 // ============================================================
 // GOALS
@@ -1190,12 +1192,12 @@ function renderGoals() {
 function openGoalModal() { document.getElementById('goal-modal').classList.add('open'); document.querySelector('#goal-modal .modal-title').textContent='Target Tabungan Baru'; document.querySelector('#goal-modal .btn-primary').textContent='Simpan'; document.querySelector('#goal-modal .btn-primary').onclick=saveGoal; document.getElementById('goal-name').value=''; document.getElementById('goal-icon').value='✈️'; document.getElementById('goal-target').value=''; document.getElementById('goal-current').value='0'; document.getElementById('goal-date').value=''; populateGoalAccountSelect(''); toggleGoalCurrentField(''); }
 function toggleGoalCurrentField(linkedAccId) { const wrapper=document.getElementById('goal-current-wrapper'); if(wrapper)wrapper.style.display=linkedAccId?'none':''; }
 function populateGoalAccountSelect(selectedId) { const sel=document.getElementById('goal-account'); if(!sel)return; sel.innerHTML='<option value="">— Tidak dihubungkan —</option>'; state.accounts.forEach(a=>{const opt=document.createElement('option'); opt.value=a.id; opt.textContent=`${a.bank}${a.name?' - '+a.name:''} (${fmtShort(a.balance)})`; if(String(a.id)===String(selectedId))opt.selected=true; sel.appendChild(opt);}); }
-async function saveGoal() { const name=document.getElementById('goal-name').value.trim(); const icon=document.getElementById('goal-icon').value; const target=parseFloat(document.getElementById('goal-target').value); const current=parseFloat(document.getElementById('goal-current').value)||0; const deadline=document.getElementById('goal-date').value; const linkedAccount=document.getElementById('goal-account').value||''; if(!name||!target||target<=0){toast('⚠️ Lengkapi nama dan target');return;} state.goals.push({id:++state.nextId,name,icon,target,current,deadline,linkedAccount}); await saveData(); closeModal('goal-modal'); renderGoals(); toast('✅ Target tabungan ditambahkan'); }
+async function saveGoal() { try { const name=document.getElementById('goal-name').value.trim(); const icon=document.getElementById('goal-icon').value; const target=parseFloat(document.getElementById('goal-target').value); const current=parseFloat(document.getElementById('goal-current').value)||0; const deadline=document.getElementById('goal-date').value; const linkedAccount=document.getElementById('goal-account').value||''; if(!name||!target||target<=0){toast('⚠️ Lengkapi nama dan target');return;} state.goals.push({id:++state.nextId,name,icon,target,current,deadline,linkedAccount}); await saveData(); closeModal('goal-modal'); renderGoals(); toast('✅ Target tabungan ditambahkan'); } catch(e){console.error(e);toast('⚠️ Error');} }
 function editGoal(id) { id=Number(id); const g=state.goals.find(g=>g.id===id); if(!g)return; openGoalModal(); setTimeout(()=>{ document.getElementById('goal-name').value=g.name; document.getElementById('goal-icon').value=g.icon||'⭐'; document.getElementById('goal-target').value=g.target; document.getElementById('goal-current').value=g.current||0; document.getElementById('goal-date').value=g.deadline||''; populateGoalAccountSelect(g.linkedAccount||''); toggleGoalCurrentField(g.linkedAccount||''); document.querySelector('#goal-modal .modal-title').textContent='✏️ Edit Target'; document.querySelector('#goal-modal .btn-primary').onclick=()=>updateGoal(id); },50); }
-async function updateGoal(id) { const name=document.getElementById('goal-name').value.trim(); const icon=document.getElementById('goal-icon').value; const target=parseFloat(document.getElementById('goal-target').value); const current=parseFloat(document.getElementById('goal-current').value)||0; const deadline=document.getElementById('goal-date').value; const linkedAccount=document.getElementById('goal-account').value||''; if(!name||!target||target<=0){toast('⚠️ Lengkapi nama dan target');return;} state.goals=state.goals.map(g=>g.id===id?{...g,name,icon,target,current,deadline,linkedAccount}:g); await saveData(); closeModal('goal-modal'); renderGoals(); toast('✅ Target diperbarui'); }
-async function deleteGoal(id) { id=Number(id); const ok=await showConfirm('Hapus target ini?','Hapus Target','🗑️','Ya, Hapus',true); if(!ok)return; state.goals=state.goals.filter(g=>g.id!==id); await saveData(); renderGoals(); toast('🗑 Target dihapus'); }
+async function updateGoal(id) { try { id=Number(id); const name=document.getElementById('goal-name').value.trim(); const icon=document.getElementById('goal-icon').value; const target=parseFloat(document.getElementById('goal-target').value); const current=parseFloat(document.getElementById('goal-current').value)||0; const deadline=document.getElementById('goal-date').value; const linkedAccount=document.getElementById('goal-account').value||''; if(!name||!target||target<=0){toast('⚠️ Lengkapi nama dan target');return;} state.goals=state.goals.map(g=>g.id===id?{...g,name,icon,target,current,deadline,linkedAccount}:g); await saveData(); closeModal('goal-modal'); renderGoals(); toast('✅ Target diperbarui'); } catch(e){console.error(e);toast('⚠️ Error');} }
+async function deleteGoal(id) { try { id=Number(id); const ok=await showConfirm('Hapus target ini?','Hapus Target','🗑️','Ya, Hapus',true); if(!ok)return; state.goals=state.goals.filter(g=>g.id!==id); await saveData(); renderGoals(); toast('🗑 Target dihapus'); } catch(e){console.error(e);toast('⚠️ Error');} }
 function openAddGoalModal(id) { id=Number(id); const g=state.goals.find(g=>g.id===id); if(!g)return; document.getElementById('add-goal-id').value=id; document.getElementById('add-goal-name').textContent=g.name; document.getElementById('add-goal-remaining').textContent=fmtShort(Math.max(0,g.target-(g.current||0))); document.getElementById('add-goal-amount').value=''; document.getElementById('add-goal-modal').classList.add('open'); }
-async function saveAddGoal() { const id=parseInt(document.getElementById('add-goal-id').value); const amount=parseFloat(document.getElementById('add-goal-amount').value); if(!amount||amount<=0){toast('⚠️ Masukkan jumlah');return;} state.goals=state.goals.map(g=>g.id===id?{...g,current:(g.current||0)+amount}:g); await saveData(); closeModal('add-goal-modal'); renderGoals(); toast('✅ Dana ditambahkan'); }
+async function saveAddGoal() { try { const id=parseInt(document.getElementById('add-goal-id').value); const amount=parseFloat(document.getElementById('add-goal-amount').value); if(!amount||amount<=0){toast('⚠️ Masukkan jumlah');return;} state.goals=state.goals.map(g=>g.id===id?{...g,current:(g.current||0)+amount}:g); await saveData(); closeModal('add-goal-modal'); renderGoals(); toast('✅ Dana ditambahkan'); } catch(e){console.error(e);toast('⚠️ Error');} }
 
 // ============================================================
 // REPORTS
@@ -1240,16 +1242,20 @@ function selectIcon(icon) { catSelectedIcon=icon; document.getElementById('cat-i
 function selectColor(color) { catSelectedColor=color; document.getElementById('cat-color').value=color; document.querySelectorAll('#color-picker button').forEach(b=>b.style.border='3px solid transparent'); const btn=document.getElementById(`color-btn-${color.replace('#','')}`); if(btn)btn.style.border='3px solid var(--text)'; updateCatPreview(); }
 function updateCatPreview() { const name=document.getElementById('cat-name').value||'Nama Kategori'; const icon=catSelectedIcon; const color=catSelectedColor; const previewIcon=document.getElementById('cat-preview-icon'); previewIcon.textContent=icon; previewIcon.style.background=color+'22'; previewIcon.style.color=color; document.getElementById('cat-preview-name').textContent=name; }
 async function saveCat() {
+  try {
   const name=document.getElementById('cat-name').value.trim(); const icon=document.getElementById('cat-icon').value||catSelectedIcon; const color=document.getElementById('cat-color').value||catSelectedColor; const type=document.getElementById('cat-type').value; const editName=document.getElementById('cat-edit-name').value;
   if(!name){toast('⚠️ Masukkan nama kategori');return;}
   const key=type==='exp'?'expCats':'incCats'; let cats=[...(state[key]||[])];
   if(editName){ const idx=cats.findIndex(c=>c.name===editName); if(idx>=0){ state.transactions=state.transactions.map(t=>t.cat===editName&&t.type===type?{...t,cat:name}:t); cats[idx]={name,icon,color}; } }
   else{ if(cats.find(c=>c.name===name)){toast('⚠️ Nama sudah ada');return;} cats.push({name,icon,color}); }
   state[key]=cats; await saveData(); closeModal('cat-modal'); renderCategories(); toast(`✅ Kategori "${name}" disimpan`);
+  } catch(e) { console.error('saveCat error:', e); toast('⚠️ Gagal menyimpan'); }
 }
 async function deleteCat(type,name) {
+  try {
   const ok=await showConfirm(`Hapus kategori "${name}"? Transaksi yang menggunakan kategori ini tidak akan terhapus.`,'Hapus Kategori','🗑️','Ya, Hapus',true);
   if(!ok)return; const key=type==='exp'?'expCats':'incCats'; state[key]=(state[key]||[]).filter(c=>c.name!==name); await saveData(); renderCategories(); toast(`🗑 Kategori dihapus`);
+  } catch(e) { console.error('deleteCat error:', e); toast('⚠️ Error'); }
 }
 
 // ============================================================
@@ -1272,18 +1278,17 @@ function openCashModal(mode) {
   document.getElementById('cash-save-btn').style.background=mode==='out'?'var(--red)':'var(--accent)';
 }
 async function saveCash() {
-  const amountVal=document.getElementById('cash-amount').value;
-  const amount=parseFloat(amountVal);
-  const desc=document.getElementById('cash-desc').value.trim();
-  const date=document.getElementById('cash-date').value;
-  if(!amountVal||isNaN(amount)||amount<=0){toast('⚠️ Masukkan jumlah');return;}
+  try {
+  const amount=parseFloat(document.getElementById('cash-amount').value); const desc=document.getElementById('cash-desc').value.trim(); const date=document.getElementById('cash-date').value;
+  if(!amount||amount<=0||isNaN(amount)){toast('⚠️ Masukkan jumlah');return;}
   if(!date){toast('⚠️ Masukkan tanggal');return;}
   if(currentCashMode==='adjust'){ const diff=amount-(state.cash||0); state.cashLog.push({id:++state.nextId,type:'adjust',adjSign:diff>=0?'in':'out',amount:Math.abs(diff),desc:desc||'Penyesuaian saldo',date}); state.cash=amount; }
-  else{ const delta=currentCashMode==='in'?amount:-amount; state.cash=Math.max(0,(state.cash||0)+delta); state.cashLog.push({id:++state.nextId,type:currentCashMode,amount,desc:desc||(currentCashMode==='in'?'Uang masuk':'Uang keluar'),date}); }
+  else{ const delta=currentCashMode==='in'?amount:-amount; state.cash=Math.max(0,(state.cash||0)+delta); state.cashLog.push({id:++state.nextId,type:currentCashMode,amount,desc:desc||'Cash',date}); }
   await saveData(); closeModal('cash-modal'); renderCash(); renderDashboard(); toast('✅ Cash diperbarui');
+  } catch(e) { console.error('saveCash error:', e); toast('⚠️ Gagal menyimpan'); }
 }
-async function deleteCashLog(id) { id=Number(id); const log=state.cashLog.find(l=>l.id===id); if(!log)return; const ok=await showConfirm('Hapus riwayat cash ini?','Hapus','🗑️','Ya, Hapus'); if(!ok)return; if(log.type==='adjust'){ const wasIn=(log.adjSign||'in')==='in'; state.cash=Math.max(0,(state.cash||0)+(wasIn?-log.amount:log.amount)); }else{ state.cash=Math.max(0,(state.cash||0)+(log.type==='in'?-log.amount:log.amount)); } state.cashLog=state.cashLog.filter(l=>l.id!==id); await saveData(); renderCash(); renderDashboard(); toast('🗑 Riwayat cash dihapus'); }
-async function clearCashLog() { if(!state.cashLog||!state.cashLog.length)return; const ok=await showConfirm('Hapus semua riwayat cash?','Hapus Riwayat','🗑️','Ya, Hapus'); if(!ok)return; state.cashLog=[]; await saveData(); renderCash(); toast('🗑 Riwayat cash dihapus'); }
+async function deleteCashLog(id) { try { id=Number(id); const log=state.cashLog.find(l=>l.id===id); if(!log)return; const ok=await showConfirm('Hapus riwayat cash ini?','Hapus','🗑️','Ya, Hapus'); if(!ok)return; if(log.type==='adjust'){ const wasIn=(log.adjSign||'in')==='in'; state.cash=Math.max(0,(state.cash||0)+(wasIn?-log.amount:log.amount)); }else{ state.cash=Math.max(0,(state.cash||0)+(log.type==='in'?-log.amount:log.amount)); } state.cashLog=state.cashLog.filter(l=>l.id!==id); await saveData(); renderCash(); renderDashboard(); toast('🗑 Riwayat cash dihapus'); } catch(e){console.error(e);toast('⚠️ Error');} }
+async function clearCashLog() { try { if(!state.cashLog||!state.cashLog.length)return; const ok=await showConfirm('Hapus semua riwayat cash?','Hapus Riwayat','🗑️','Ya, Hapus'); if(!ok)return; state.cashLog=[]; await saveData(); renderCash(); toast('🗑 Riwayat cash dihapus'); } catch(e){console.error(e);toast('⚠️ Error');} }
 
 // ============================================================
 // DEBTS
@@ -1319,17 +1324,19 @@ function openDebtModal(type,editId=null) {
   document.getElementById('debt-modal').classList.add('open');
 }
 async function saveDebt() {
+  try {
   const name=document.getElementById('debt-name').value.trim(); const amount=parseFloat(document.getElementById('debt-amount').value); const desc=document.getElementById('debt-desc').value.trim(); const date=document.getElementById('debt-date').value; const due=document.getElementById('debt-due').value;
   if(!name||!amount||amount<=0){toast('⚠️ Lengkapi nama dan jumlah');return;}
   if(editingDebtId){ state.debts=(state.debts||[]).map(d=>d.id===editingDebtId?{...d,name,amount,desc,date,due,debtType:currentDebtModalType}:d); toast('✅ Data diperbarui'); }
   else{ if(!state.debts)state.debts=[]; state.debts.push({id:++state.nextId,debtType:currentDebtModalType,name,amount,desc,date,due,paidAmount:0,payments:[],status:'aktif'}); toast('✅ Data disimpan'); }
   await saveData(); closeModal('debt-modal'); renderDebts(); editingDebtId=null;
+  } catch(e) { console.error('saveDebt error:', e); toast('⚠️ Gagal menyimpan'); }
 }
-async function deleteDebt(id) { id=Number(id); const ok=await showConfirm('Hapus data ini?','Hapus','🗑️','Ya, Hapus',true); if(!ok)return; state.debts=(state.debts||[]).filter(d=>d.id!==id); await saveData(); renderDebts(); toast('🗑 Dihapus'); }
-async function markDebtLunas(id) { id=Number(id); const ok=await showConfirm('Tandai sebagai lunas?','Lunas','✅','Ya, Lunas',false); if(!ok)return; state.debts=(state.debts||[]).map(d=>d.id===id?{...d,status:'lunas',paidAmount:d.amount}:d); await saveData(); renderDebts(); toast('✅ Ditandai lunas'); }
+async function deleteDebt(id) { try { id=Number(id); const ok=await showConfirm('Hapus data ini?','Hapus','🗑️','Ya, Hapus',true); if(!ok)return; state.debts=(state.debts||[]).filter(d=>d.id!==id); await saveData(); renderDebts(); toast('🗑 Dihapus'); } catch(e){console.error(e);toast('⚠️ Error');} }
+async function markDebtLunas(id) { try { id=Number(id); const ok=await showConfirm('Tandai sebagai lunas?','Lunas','✅','Ya, Lunas',false); if(!ok)return; state.debts=(state.debts||[]).map(d=>d.id===id?{...d,status:'lunas',paidAmount:d.amount}:d); await saveData(); renderDebts(); toast('✅ Ditandai lunas'); } catch(e){console.error(e);toast('⚠️ Error');} }
 function openDebtPayModal(id) { id=Number(id); const d=(state.debts||[]).find(d=>d.id===id); if(!d)return; const remaining=d.amount-(d.paidAmount||0); document.getElementById('debt-pay-id').value=id; document.getElementById('debt-pay-title').textContent=d.debtType==='hutang'?'💳 Bayar Hutang':'📥 Terima Piutang'; document.getElementById('debt-pay-remaining').textContent=fmtShort(remaining); document.getElementById('debt-pay-remaining').style.color=d.debtType==='hutang'?'var(--red)':'var(--green)'; document.getElementById('debt-pay-amount').value=''; document.getElementById('debt-pay-desc').value=''; document.getElementById('debt-pay-date').value=new Date().toISOString().slice(0,10); document.getElementById('debt-pay-modal').classList.add('open'); }
-async function saveDebtPayment() { const id=parseInt(document.getElementById('debt-pay-id').value); const amount=parseFloat(document.getElementById('debt-pay-amount').value); const desc=document.getElementById('debt-pay-desc').value.trim(); const date=document.getElementById('debt-pay-date').value; if(!amount||amount<=0){toast('⚠️ Masukkan jumlah');return;} state.debts=(state.debts||[]).map(d=>{ if(d.id!==id)return d; const newPaid=(d.paidAmount||0)+amount; const payments=[...(d.payments||[]),{amount,desc:desc||'Pembayaran',date}]; return {...d,paidAmount:newPaid,payments,status:newPaid>=d.amount?'lunas':'aktif'}; }); await saveData(); closeModal('debt-pay-modal'); renderDebts(); toast('✅ Pembayaran dicatat'); }
-async function deletePayment(debtId,payIdx) { state.debts=(state.debts||[]).map(d=>{ if(d.id!==debtId)return d; const payments=[...(d.payments||[])]; const removed=payments.splice(payIdx,1)[0]; const newPaid=Math.max(0,(d.paidAmount||0)-(removed?removed.amount:0)); return {...d,paidAmount:newPaid,payments,status:newPaid>=d.amount?'lunas':'aktif'}; }); await saveData(); renderDebts(); toast('🗑 Pembayaran dihapus'); }
+async function saveDebtPayment() { try { const id=parseInt(document.getElementById('debt-pay-id').value); const amount=parseFloat(document.getElementById('debt-pay-amount').value); const desc=document.getElementById('debt-pay-desc').value.trim(); const date=document.getElementById('debt-pay-date').value; if(!amount||amount<=0){toast('⚠️ Masukkan jumlah');return;} state.debts=(state.debts||[]).map(d=>{ if(d.id!==id)return d; const newPaid=(d.paidAmount||0)+amount; const payments=[...(d.payments||[]),{amount,desc:desc||'Pembayaran',date}]; return {...d,paidAmount:newPaid,payments,status:newPaid>=d.amount?'lunas':'aktif'}; }); await saveData(); closeModal('debt-pay-modal'); renderDebts(); toast('✅ Pembayaran dicatat'); } catch(e){console.error(e);toast('⚠️ Error');} }
+async function deletePayment(debtId,payIdx) { try { debtId=Number(debtId); payIdx=Number(payIdx); state.debts=(state.debts||[]).map(d=>{ if(d.id!==debtId)return d; const payments=[...(d.payments||[])]; const removed=payments.splice(payIdx,1)[0]; const newPaid=Math.max(0,(d.paidAmount||0)-(removed?removed.amount:0)); return {...d,paidAmount:newPaid,payments,status:newPaid>=d.amount?'lunas':'aktif'}; }); await saveData(); renderDebts(); toast('🗑 Pembayaran dihapus'); } catch(e){console.error(e);toast('⚠️ Error');} }
 
 // ============================================================
 // MODAL HELPERS
@@ -1361,12 +1368,8 @@ function showConfirm(msg,title='Konfirmasi',icon='⚠️',okLabel='Ya',danger=tr
 
 // Close modals on backdrop click (except confirm which is handled above)
 document.querySelectorAll('.modal-overlay').forEach(m=>{
-  // Stop propagation from modal content to prevent accidental close
-  const modalContent = m.querySelector('.modal');
-  if(modalContent) {
-    modalContent.addEventListener('click', e => e.stopPropagation());
-  }
   m.addEventListener('click',e=>{
+    // Only close if clicking directly on the overlay backdrop, not any child
     if(e.target!==m)return;
     if(m.id==='confirm-modal'){ confirmResolve_call(false); return; }
     m.classList.remove('open');
