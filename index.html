@@ -245,7 +245,7 @@
   @media (max-width: 768px) {
     .sidebar { transform: translateX(-100%); }
     .sidebar.open { transform: translateX(0); }
-    .main { margin-left: 0 !important; max-width: 100vw !important; width: 100%; padding: 12px 14px 90px !important; box-sizing: border-box; }
+    .main { margin-left: 0 !important; max-width: 100vw !important; width: 100%; padding: 72px 14px 90px !important; box-sizing: border-box; }
     .mobile-header { display: flex !important; }
     .bottom-nav { display: flex !important; }
     .grid-4, .grid-3, .grid-2, .grid-2-1, .grid-1-2 { grid-template-columns: 1fr !important; }
@@ -266,7 +266,7 @@
     .stat-value { word-break: break-all; }
   }
   @media (max-width: 400px) {
-    .main { padding: 10px 10px 90px !important; }
+    .main { padding: 68px 10px 90px !important; }
     .stat-value { font-size: 1rem !important; }
     .btn { padding: 8px 12px; font-size: 0.76rem; }
     #page-dashboard .grid-4 { grid-template-columns: 1fr 1fr !important; }
@@ -358,9 +358,7 @@
       <div class="nav-item" onclick="navigateMobile('goals')"><span class="icon">⭐</span> Tabungan</div>
       <div class="nav-item" onclick="navigateMobile('categories')"><span class="icon">🏷️</span> Kategori</div>
       <div class="nav-item" onclick="navigateMobile('reports')"><span class="icon">📈</span> Laporan</div>
-      <div class="nav-section">Data</div>
-      <div class="nav-item" onclick="exportData()"><span class="icon">📤</span> Export Data</div>
-      <div class="nav-item" onclick="openImportModal()"><span class="icon">📥</span> Import Data</div>
+
     </nav>
     <div class="sidebar-bottom">
       <div id="sidebar-date"></div>
@@ -727,28 +725,6 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" id="confirm-cancel-btn" onclick="confirmResolve(false)">Batal</button>
       <button class="btn btn-primary" id="confirm-ok-btn" onclick="confirmResolve(true)">Ya</button>
-    </div>
-  </div>
-</div>
-
-<!-- IMPORT MODAL -->
-<div class="modal-overlay" id="import-modal">
-  <div class="modal" style="max-width:480px">
-    <div class="modal-title">📥 Import Data</div>
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r2);padding:14px;margin-bottom:16px;font-size:0.82rem;color:var(--text2);line-height:1.6">
-      ⚠️ Import akan <strong style="color:var(--red)">mengganti semua data saat ini</strong> dengan data dari file.
-    </div>
-    <div id="drop-zone" onclick="document.getElementById('import-file-input').click()" style="border:2px dashed var(--border2);border-radius:var(--r);padding:32px 20px;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:14px">
-      <div style="font-size:2rem;margin-bottom:8px">📂</div>
-      <div style="font-size:0.88rem;font-weight:600;color:var(--text2)">Tap/klik untuk pilih file</div>
-      <div style="font-size:0.75rem;color:var(--text3);margin-top:4px">atau drag & drop file .json di sini</div>
-      <div id="import-filename" style="margin-top:10px;font-size:0.78rem;color:var(--accent2);display:none"></div>
-    </div>
-    <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="onImportFileSelect(event)">
-    <div id="import-preview" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r2);padding:14px;margin-bottom:16px"></div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('import-modal')">Batal</button>
-      <button class="btn btn-primary" id="import-confirm-btn" onclick="confirmImport()" disabled style="opacity:0.5">Import Sekarang</button>
     </div>
   </div>
 </div>
@@ -1353,34 +1329,38 @@ async function deletePayment(debtId,payIdx) { state.debts=(state.debts||[]).map(
 // MODAL HELPERS
 // ============================================================
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-document.querySelectorAll('.modal-overlay').forEach(m=>{ m.addEventListener('click',e=>{ if(e.target!==m)return; if(m.id==='confirm-modal'){confirmResolve(false);return;} m.classList.remove('open'); }); });
 
 let confirmResolve=null;
-function showConfirm(msg,title='Konfirmasi',icon='⚠️',okLabel='Ya',danger=true) {
-  return new Promise(resolve=>{ confirmResolve=resolve; document.getElementById('confirm-icon').textContent=icon; document.getElementById('confirm-title').textContent=title; document.getElementById('confirm-msg').textContent=msg; const okBtn=document.getElementById('confirm-ok-btn'); okBtn.textContent=okLabel; okBtn.style.background=danger?'var(--red)':'var(--accent)'; document.getElementById('confirm-modal').classList.add('open'); });
+
+function confirmResolve_call(val) {
+  const m=document.getElementById('confirm-modal');
+  m.classList.remove('open');
+  if(confirmResolve){ confirmResolve(val); confirmResolve=null; }
 }
 
-// ============================================================
-// EXPORT / IMPORT
-// ============================================================
-function exportData() {
-  const exportObj={...state,_meta:{exported:new Date().toISOString(),version:'2.0'}};
-  const blob=new Blob([JSON.stringify(exportObj,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`dompetku-backup-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); toast('📤 Data diekspor!');
+function showConfirm(msg,title='Konfirmasi',icon='⚠️',okLabel='Ya',danger=true) {
+  return new Promise(resolve=>{
+    confirmResolve=resolve;
+    document.getElementById('confirm-icon').textContent=icon;
+    document.getElementById('confirm-title').textContent=title;
+    document.getElementById('confirm-msg').textContent=msg;
+    const okBtn=document.getElementById('confirm-ok-btn');
+    okBtn.textContent=okLabel;
+    okBtn.style.background=danger?'var(--red)':'var(--accent)';
+    okBtn.onclick=()=>confirmResolve_call(true);
+    document.getElementById('confirm-cancel-btn').onclick=()=>confirmResolve_call(false);
+    document.getElementById('confirm-modal').classList.add('open');
+  });
 }
-let importedData=null;
-function openImportModal() { importedData=null; document.getElementById('import-confirm-btn').disabled=true; document.getElementById('import-confirm-btn').style.opacity='0.5'; document.getElementById('import-filename').style.display='none'; document.getElementById('import-preview').style.display='none'; document.getElementById('import-modal').classList.add('open'); }
-function onImportFileSelect(e) {
-  const file=e.target.files[0]; if(!file)return; document.getElementById('import-filename').textContent=file.name; document.getElementById('import-filename').style.display='block';
-  const reader=new FileReader(); reader.onload=ev=>{ try{ const data=JSON.parse(ev.target.result); importedData=data; const txCount=(data.transactions||[]).length; const budgetCount=(data.budgets||[]).length; const goalCount=(data.goals||[]).length; const expDate=data._meta?.exported?new Date(data._meta.exported).toLocaleString('id-ID'):'Tidak diketahui'; document.getElementById('import-preview').innerHTML=`<div style="font-size:0.75rem;color:var(--text2);margin-bottom:10px">Preview Data</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px"><div style="background:var(--surface3);border-radius:8px;padding:10px;text-align:center"><div style="font-size:1.4rem;font-weight:800;color:var(--accent2)">${txCount}</div><div style="font-size:0.7rem;color:var(--text3)">Transaksi</div></div><div style="background:var(--surface3);border-radius:8px;padding:10px;text-align:center"><div style="font-size:1.4rem;font-weight:800;color:var(--yellow)">${budgetCount}</div><div style="font-size:0.7rem;color:var(--text3)">Anggaran</div></div><div style="background:var(--surface3);border-radius:8px;padding:10px;text-align:center"><div style="font-size:1.4rem;font-weight:800;color:var(--purple)">${goalCount}</div><div style="font-size:0.7rem;color:var(--text3)">Target</div></div></div><div style="margin-top:10px;font-size:0.72rem;color:var(--text3)">Di-export: ${expDate}</div>`; document.getElementById('import-preview').style.display='block'; const btn=document.getElementById('import-confirm-btn'); btn.disabled=false; btn.style.opacity='1'; }catch(err){toast('❌ File rusak atau tidak bisa dibaca');} }; reader.readAsText(file);
-}
-async function confirmImport() {
-  if(!importedData)return; const ok=await showConfirm('Yakin ingin mengganti semua data saat ini dengan data dari file ini?','Import Data','📥','Ya, Import',false); if(!ok)return;
-  if(!importedData.expCats||!importedData.expCats.length)importedData.expCats=DEFAULT_EXP_CATS;
-  if(!importedData.incCats||!importedData.incCats.length)importedData.incCats=DEFAULT_INC_CATS;
-  if(!importedData.nextId)importedData.nextId=100; if(importedData.cash===undefined)importedData.cash=0; if(!importedData.cashLog)importedData.cashLog=[]; if(!importedData.debts)importedData.debts=[];
-  const{_meta,...cleanData}=importedData; state=cleanData; await saveData(); closeModal('import-modal'); importedData=null; renderAll(); updateAccountSelects(); toast('✅ Data berhasil di-import!');
-}
+
+// Close modals on backdrop click (except confirm which is handled above)
+document.querySelectorAll('.modal-overlay').forEach(m=>{
+  m.addEventListener('click',e=>{
+    if(e.target!==m)return;
+    if(m.id==='confirm-modal'){ confirmResolve_call(false); return; }
+    m.classList.remove('open');
+  });
+});
 
 // ============================================================
 // RENDER ALL / MOBILE
