@@ -503,13 +503,26 @@
       <div class="topbar">
         <div><div class="page-title">Cash</div><div class="page-subtitle">Uang tunai yang kamu pegang</div></div>
         <div class="topbar-right">
-          <button class="btn btn-ghost" onclick="openCashModal('adjust')">⚖️ Sesuaikan</button>
           <button class="btn btn-primary" onclick="openCashModal('in')">+ Masuk</button>
           <button class="btn btn-primary" style="background:var(--red);box-shadow:none" onclick="openCashModal('out')">- Keluar</button>
         </div>
       </div>
       <div class="grid grid-2" style="margin-bottom:16px">
-        <div class="stat-card green"><div class="stat-label">Saldo Cash Saat Ini</div><div class="stat-value green" id="cash-balance">Rp 0</div><div class="stat-delta">Uang tunai di tangan</div></div>
+        <div class="stat-card green">
+          <div class="stat-label">Saldo Cash Saat Ini</div>
+          <div id="cash-balance-display" style="cursor:pointer" onclick="startEditCashBalance()" title="Klik untuk edit saldo">
+            <div class="stat-value green" id="cash-balance" style="display:inline">Rp 0</div>
+            <span style="font-size:0.7rem;color:var(--text3);margin-left:6px">✏️</span>
+          </div>
+          <div id="cash-balance-edit" style="display:none">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="number" class="form-input" id="cash-balance-input" placeholder="0" min="0" style="flex:1;font-size:1.1rem;font-weight:700;padding:8px 12px" onkeydown="if(event.key==='Enter')saveEditCashBalance();if(event.key==='Escape')cancelEditCashBalance()">
+              <button onclick="saveEditCashBalance()" style="background:var(--green);border:none;color:#fff;padding:8px 14px;border-radius:var(--r2);cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;font-size:0.8rem">✓</button>
+              <button onclick="cancelEditCashBalance()" style="background:var(--surface3);border:1px solid var(--border);color:var(--text2);padding:8px 12px;border-radius:var(--r2);cursor:pointer;font-size:0.8rem">✕</button>
+            </div>
+          </div>
+          <div class="stat-delta">Klik angka untuk edit saldo</div>
+        </div>
         <div class="stat-card accent"><div class="stat-label">Total Transaksi Cash</div><div class="stat-value accent" id="cash-tx-count">0</div><div class="stat-delta">Semua waktu</div></div>
       </div>
       <div class="card"><div class="card-header"><span class="card-title">RIWAYAT CASH</span><span class="card-action" onclick="clearCashLog()" style="color:var(--red)">Hapus Semua</span></div><div class="tx-list" id="cash-log-list"></div></div>
@@ -1264,6 +1277,7 @@ async function deleteCat(type,name) {
 let currentCashMode='in';
 function renderCash() {
   document.getElementById('cash-balance').textContent=fmtShort(state.cash||0);
+  cancelEditCashBalance();
   const logs=(state.cashLog||[]).filter(l=>!l.fromTxId).concat((state.cashLog||[]).filter(l=>l.fromTxId));
   document.getElementById('cash-tx-count').textContent=(state.cashLog||[]).length;
   const el=document.getElementById('cash-log-list');
@@ -1271,9 +1285,35 @@ function renderCash() {
   if(!allLogs.length){el.innerHTML=emptyHTML('Belum ada riwayat cash');return;}
   el.innerHTML=allLogs.map(l=>{ const isIn=l.type==='in'; const isAdj=l.type==='adjust'; return `<div class="tx-item"><div class="tx-icon" style="background:${isAdj?'var(--yellow-dim)':isIn?'var(--green-dim)':'var(--red-dim)'};color:${isAdj?'var(--yellow)':isIn?'var(--green)':'var(--red)'}">${isAdj?'⚖️':isIn?'📥':'📤'}</div><div class="tx-info"><div class="tx-name">${l.desc||'-'}</div><div class="tx-meta">${fmtDate(l.date)}${l.fromTxId?' · Dari Transaksi':''}</div></div><div class="tx-amount ${isIn||isAdj?'inc':'exp'}">${isIn?'+':'-'}${fmtShort(l.amount)}</div>${!l.fromTxId?`<button class="tx-delete" onclick="deleteCashLog(${l.id})">✕</button>`:''}</div>`; }).join('');
 }
+function startEditCashBalance() {
+  document.getElementById('cash-balance-display').style.display='none';
+  document.getElementById('cash-balance-edit').style.display='block';
+  const input=document.getElementById('cash-balance-input');
+  input.value=state.cash||0;
+  input.focus();
+  input.select();
+}
+function cancelEditCashBalance() {
+  const d=document.getElementById('cash-balance-display');
+  const e=document.getElementById('cash-balance-edit');
+  if(d)d.style.display='';
+  if(e)e.style.display='none';
+}
+async function saveEditCashBalance() {
+  try {
+    const val=parseFloat(document.getElementById('cash-balance-input').value);
+    if(isNaN(val)||val<0){toast('⚠️ Masukkan angka yang valid');return;}
+    state.cash=val;
+    await saveData();
+    cancelEditCashBalance();
+    renderCash();
+    renderDashboard();
+    toast('✅ Saldo cash diperbarui');
+  } catch(e) { console.error('saveEditCashBalance error:', e); toast('⚠️ Gagal menyimpan'); }
+}
 function openCashModal(mode) {
   currentCashMode=mode; document.getElementById('cash-modal').classList.add('open');
-  document.getElementById('cash-modal-title').textContent=mode==='in'?'💵 Uang Masuk':mode==='out'?'💸 Uang Keluar':'⚖️ Sesuaikan Saldo Cash';
+  document.getElementById('cash-modal-title').textContent=mode==='in'?'💵 Uang Masuk':'💸 Uang Keluar';
   document.getElementById('cash-amount').value=''; document.getElementById('cash-desc').value=''; document.getElementById('cash-date').value=new Date().toISOString().slice(0,10);
   document.getElementById('cash-save-btn').style.background=mode==='out'?'var(--red)':'var(--accent)';
 }
@@ -1282,8 +1322,7 @@ async function saveCash() {
   const amount=parseFloat(document.getElementById('cash-amount').value); const desc=document.getElementById('cash-desc').value.trim(); const date=document.getElementById('cash-date').value;
   if(!amount||amount<=0||isNaN(amount)){toast('⚠️ Masukkan jumlah');return;}
   if(!date){toast('⚠️ Masukkan tanggal');return;}
-  if(currentCashMode==='adjust'){ const diff=amount-(state.cash||0); state.cashLog.push({id:++state.nextId,type:'adjust',adjSign:diff>=0?'in':'out',amount:Math.abs(diff),desc:desc||'Penyesuaian saldo',date}); state.cash=amount; }
-  else{ const delta=currentCashMode==='in'?amount:-amount; state.cash=Math.max(0,(state.cash||0)+delta); state.cashLog.push({id:++state.nextId,type:currentCashMode,amount,desc:desc||'Cash',date}); }
+  const delta=currentCashMode==='in'?amount:-amount; state.cash=Math.max(0,(state.cash||0)+delta); state.cashLog.push({id:++state.nextId,type:currentCashMode,amount,desc:desc||(currentCashMode==='in'?'Uang masuk':'Uang keluar'),date});
   await saveData(); closeModal('cash-modal'); renderCash(); renderDashboard(); toast('✅ Cash diperbarui');
   } catch(e) { console.error('saveCash error:', e); toast('⚠️ Gagal menyimpan'); }
 }
