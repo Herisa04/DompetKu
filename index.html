@@ -2129,14 +2129,16 @@ async function saveAddGoal() {
     const acc = state.accounts.find(a=>String(a.id)===String(g.linkedAccount));
     if (acc) {
       acc.balance += amount;
-      await saveData(); closeModal('add-goal-modal'); renderGoals(); renderAccounts();
+      closeModal('add-goal-modal'); renderGoals(); renderAccounts();
+      saveData(); // background
       toast(`✅ +${fmtShort(amount)} ditambahkan ke ${acc.bank}${acc.name?' - '+acc.name:''}`);
     } else {
       toast('⚠️ Rekening terhubung tidak ditemukan');
     }
   } else {
     g.current = Math.min(g.target, g.current + amount);
-    await saveData(); closeModal('add-goal-modal'); renderGoals();
+    closeModal('add-goal-modal'); renderGoals();
+    saveData(); // background
     toast(`✅ +${fmtShort(amount)} ditambahkan ke ${g.name}`);
   }
 }
@@ -2339,32 +2341,38 @@ function updateCashFromTx(type, amount, account, reverse=false, desc='', date=''
 }
 
 async function saveTx() {
-  const amount  = parseFloat(document.getElementById('tx-amount').value);
-  const desc    = document.getElementById('tx-desc').value.trim();
-  const cat     = document.getElementById('tx-cat').value;
-  const account = document.getElementById('tx-account').value;
-  const date    = document.getElementById('tx-date').value;
-  if (!amount || amount<=0 || !desc || !date) { toast('⚠️ Lengkapi semua field'); return; }
+  if (_isSaving) return;
+  _isSaving = true;
+  try {
+    const amount  = parseFloat(document.getElementById('tx-amount').value);
+    const desc    = document.getElementById('tx-desc').value.trim();
+    const cat     = document.getElementById('tx-cat').value;
+    const account = document.getElementById('tx-account').value;
+    const date    = document.getElementById('tx-date').value;
+    if (!amount || amount<=0 || !desc || !date) { toast('⚠️ Lengkapi semua field'); return; }
 
-  if (editingTxId !== null) {
-    const old = state.transactions.find(t=>t.id===editingTxId);
-    if (old) updateCashFromTx(old.type, old.amount, old.account, true, old.desc, old.date, editingTxId);
-    state.transactions = state.transactions.map(t =>
-      t.id===editingTxId ? {...t, type:currentTxType, amount, desc, cat, account, date} : t
-    );
-    updateCashFromTx(currentTxType, amount, account, false, desc, date, editingTxId);
-    toast('✅ Transaksi diperbarui');
-  } else {
-    const newId = ++state.nextId;
-    const tx = { id: newId, type: currentTxType, amount, desc, cat, account, date };
-    state.transactions.push(tx);
-    updateCashFromTx(currentTxType, amount, account, false, desc, date, newId);
-    toast('✅ Transaksi disimpan');
+    if (editingTxId !== null) {
+      const old = state.transactions.find(t=>t.id===editingTxId);
+      if (old) updateCashFromTx(old.type, old.amount, old.account, true, old.desc, old.date, editingTxId);
+      state.transactions = state.transactions.map(t =>
+        t.id===editingTxId ? {...t, type:currentTxType, amount, desc, cat, account, date} : t
+      );
+      updateCashFromTx(currentTxType, amount, account, false, desc, date, editingTxId);
+      toast('✅ Transaksi diperbarui');
+    } else {
+      const newId = ++state.nextId;
+      const tx = { id: newId, type: currentTxType, amount, desc, cat, account, date };
+      state.transactions.push(tx);
+      updateCashFromTx(currentTxType, amount, account, false, desc, date, newId);
+      toast('✅ Transaksi disimpan');
+    }
+    editingTxId = null;
+    closeModal('tx-modal');
+    renderAll();
+    saveData(); // simpan ke Supabase di background
+  } finally {
+    _isSaving = false;
   }
-  editingTxId = null;
-  closeModal('tx-modal');
-  renderAll();
-  saveData(); // simpan ke Supabase di background
 }
 
 function openBudgetModal() {
@@ -2399,7 +2407,8 @@ async function saveBudget() {
   const existing = state.budgets.findIndex(b=>b.cat===cat&&b.month===month);
   if (existing>=0) { state.budgets[existing].amount=amount; }
   else { state.budgets.push({ id:++state.nextId, cat, amount, month }); }
-  await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran disimpan');
+  closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran disimpan');
+  saveData(); // background
 }
 
 function openAccountModal() {
@@ -2420,7 +2429,8 @@ async function saveAccount() {
   const number = document.getElementById('acc-number').value.trim();
   const balance = parseFloat(document.getElementById('acc-balance').value)||0;
   state.accounts.push({ id:++state.nextId, bank, name, number, balance });
-  await saveData(); closeModal('account-modal'); renderAccounts(); updateAccountSelects(); toast('✅ Rekening ditambahkan');
+  closeModal('account-modal'); renderAccounts(); updateAccountSelects(); toast('✅ Rekening ditambahkan');
+  saveData(); // background
 }
 
 function openGoalModal() {
@@ -2466,7 +2476,8 @@ async function saveGoal() {
   const linkedAccount = document.getElementById('goal-account').value || '';
   if (!name||!target||target<=0) { toast('⚠️ Lengkapi nama dan target'); return; }
   state.goals.push({ id:++state.nextId, name, icon, target, current, deadline, linkedAccount });
-  await saveData(); closeModal('goal-modal'); renderGoals(); toast('✅ Target tabungan ditambahkan');
+  closeModal('goal-modal'); renderGoals(); toast('✅ Target tabungan ditambahkan');
+  saveData(); // background
 }
 
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
@@ -2685,7 +2696,8 @@ async function saveEditAccount(id) {
   accBtn2.textContent = 'Simpan';
   accBtn2.onclick = null;
   accBtn2.setAttribute('onclick', 'saveAccount()');
-  await saveData(); closeModal('account-modal'); renderAccounts(); updateAccountSelects();
+  closeModal('account-modal'); renderAccounts(); updateAccountSelects();
+  saveData(); // background
   toast('✅ Rekening diperbarui');
 }
 
@@ -2714,7 +2726,8 @@ async function saveEditBudget(id) {
   budBtn2.textContent = 'Simpan';
   budBtn2.onclick = null;
   budBtn2.setAttribute('onclick', 'saveBudget()');
-  await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran diperbarui');
+  closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran diperbarui');
+  saveData(); // background
 }
 
 function editGoal(id) {
@@ -2749,7 +2762,8 @@ async function saveEditGoal(id) {
   goalBtn2.textContent = 'Simpan';
   goalBtn2.onclick = null;
   goalBtn2.setAttribute('onclick', 'saveGoal()');
-  await saveData(); closeModal('goal-modal'); renderGoals(); toast('✅ Target diperbarui');
+  closeModal('goal-modal'); renderGoals(); toast('✅ Target diperbarui');
+  saveData(); // background
 }
 
 // ============================================================
@@ -2802,6 +2816,7 @@ function renderCash() {
 
 let currentCashType = 'in';
 let editingCashId = null;
+let _isSaving = false; // global guard anti double-submit
 
 function openCashModal(type) {
   editingCashId = null;
@@ -2830,38 +2845,47 @@ function editCashLog(id) {
 }
 
 async function saveCashTx() {
-  const amount = parseFloat(document.getElementById('cash-amount').value);
-  const desc   = document.getElementById('cash-desc').value.trim();
-  const date   = document.getElementById('cash-date').value;
-  if (!amount || amount <= 0) { toast('⚠️ Masukkan jumlah'); return; }
-  if (!date) { toast('⚠️ Pilih tanggal'); return; }
+  if (_isSaving) return;
+  _isSaving = true;
+  try {
+    const amount = parseFloat(document.getElementById('cash-amount').value);
+    const desc   = document.getElementById('cash-desc').value.trim();
+    const date   = document.getElementById('cash-date').value;
+    if (!amount || amount <= 0) { toast('⚠️ Masukkan jumlah'); return; }
+    if (!date) { toast('⚠️ Pilih tanggal'); return; }
 
-  if (editingCashId !== null) {
-    // EDIT MODE — revert saldo lama dulu
-    const old = (state.cashLog||[]).find(l=>l.id===editingCashId);
-    const oldCash = state.cash || 0;
-    if (old) state.cash = Math.max(0, oldCash + (old.type==='in' ? -old.amount : old.amount));
-    // Cek saldo cukup untuk tipe 'out' baru
-    if (currentCashType === 'out' && state.cash < amount) {
-      showConfirm(`Saldo cash (${fmtShort(state.cash)}) tidak cukup. Tetap lanjutkan?`, 'Saldo Kurang', '⚠️', 'Lanjutkan', false).then(async ok => {
-        if (!ok) { state.cash = oldCash; return; }
-        await _doSaveCashEdit(amount, desc, date, oldCash);
-      });
-      return;
+    if (editingCashId !== null) {
+      // EDIT MODE — revert saldo lama dulu
+      const old = (state.cashLog||[]).find(l=>l.id===editingCashId);
+      const oldCash = state.cash || 0;
+      if (old) state.cash = Math.max(0, oldCash + (old.type==='in' ? -old.amount : old.amount));
+      // Cek saldo cukup untuk tipe 'out' baru
+      if (currentCashType === 'out' && state.cash < amount) {
+        showConfirm(`Saldo cash (${fmtShort(state.cash)}) tidak cukup. Tetap lanjutkan?`, 'Saldo Kurang', '⚠️', 'Lanjutkan', false).then(async ok => {
+          if (!ok) { state.cash = oldCash; _isSaving = false; return; }
+          await _doSaveCashEdit(amount, desc, date, oldCash);
+          _isSaving = false;
+        });
+        return;
+      }
+      await _doSaveCashEdit(amount, desc, date, oldCash);
+    } else {
+      // ADD MODE
+      const doAdd = async () => {
+        state.cash = (state.cash||0) + (currentCashType==='in' ? amount : -amount);
+        if (!state.cashLog) state.cashLog = [];
+        state.cashLog.push({ id: ++state.nextId, type: currentCashType, amount, desc: desc ? desc : (currentCashType==='in'?'Cash masuk':'Cash keluar'), date });
+        closeModal('cash-modal'); renderCash(); renderDashboard();
+        toast(currentCashType==='in' ? `✅ +${fmtShort(amount)} cash masuk` : `✅ -${fmtShort(amount)} cash keluar`);
+        saveData(); // simpan ke Supabase di background
+      };
+      if (currentCashType === 'out' && (state.cash||0) < amount) {
+        showConfirm(`Saldo cash (${fmtShort(state.cash||0)}) tidak cukup. Tetap lanjutkan?`, 'Saldo Kurang', '⚠️', 'Lanjutkan', false).then(async ok => { if(ok) await doAdd(); _isSaving = false; });
+        return;
+      } else { await doAdd(); }
     }
-    await _doSaveCashEdit(amount, desc, date, oldCash);
-  } else {
-    // ADD MODE
-    const doAdd = async () => {
-      state.cash = (state.cash||0) + (currentCashType==='in' ? amount : -amount);
-      if (!state.cashLog) state.cashLog = [];
-      state.cashLog.push({ id: ++state.nextId, type: currentCashType, amount, desc: desc ? desc : (currentCashType==='in'?'Cash masuk':'Cash keluar'), date });
-      await saveData(); closeModal('cash-modal'); renderCash(); renderDashboard();
-      toast(currentCashType==='in' ? `✅ +${fmtShort(amount)} cash masuk` : `✅ -${fmtShort(amount)} cash keluar`);
-    };
-    if (currentCashType === 'out' && (state.cash||0) < amount) {
-      showConfirm(`Saldo cash (${fmtShort(state.cash||0)}) tidak cukup. Tetap lanjutkan?`, 'Saldo Kurang', '⚠️', 'Lanjutkan', false).then(async ok => { if(ok) await doAdd(); });
-    } else { await doAdd(); }
+  } finally {
+    _isSaving = false;
   }
 }
 
@@ -2873,8 +2897,9 @@ async function _doSaveCashEdit(amount, desc, date, oldCash) {
       : l
   );
   editingCashId = null;
-  await saveData(); closeModal('cash-modal'); renderCash(); renderDashboard();
+  closeModal('cash-modal'); renderCash(); renderDashboard();
   toast('✅ Transaksi cash diperbarui');
+  saveData(); // simpan ke Supabase di background
 }
 
 function openEditCashBalance() {
@@ -3180,7 +3205,8 @@ async function saveDebtPayment() {
 
   payingDebtId = null;
   editingPaymentIdx = null;
-  await saveData(); closeModal('debt-pay-modal'); renderDebts();
+  closeModal('debt-pay-modal'); renderDebts();
+  saveData(); // background
   toast('✅ Pembayaran disimpan');
 }
 
