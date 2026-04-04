@@ -1514,44 +1514,39 @@ function migrateCats(existing, defaults) {
 }
 
 async function loadUserData() {
-  let retries = 3;
-  while (retries > 0) {
-    try {
-      const { data, error } = await sb.from('user_data').select('data').eq('user_id', currentUser.id).maybeSingle();
+  try {
+    const { data, error } = await sb.from('user_data').select('data').eq('user_id', currentUser.id).maybeSingle();
 
-      // Kalau ada error dari Supabase — JANGAN reset data, throw supaya bisa di-retry
-      if (error) throw new Error('Supabase load error: ' + error.message);
-
-      if (!data || !data.data) {
-        // Benar-benar user baru, belum pernah simpan data
-        state = getDefaultData();
-        await _doSave(); // langsung save, pastikan row terbentuk
-      } else {
-        state = data.data;
-        if (!state.expCats || !state.expCats.length) state.expCats = DEFAULT_EXP_CATS;
-        else state.expCats = migrateCats(state.expCats, DEFAULT_EXP_CATS);
-        if (!state.incCats || !state.incCats.length) state.incCats = DEFAULT_INC_CATS;
-        else state.incCats = migrateCats(state.incCats, DEFAULT_INC_CATS);
-        if (state.cash === undefined) state.cash = 0;
-        if (!state.cashLog) state.cashLog = [];
-        if (!state.debts) state.debts = [];
-        if (!state.nextId) state.nextId = 100;
-        if (!state.transactions) state.transactions = [];
-        if (!state.accounts) state.accounts = [];
-        if (!state.budgets) state.budgets = [];
-        if (!state.goals) state.goals = [];
-      }
-      return; // sukses, keluar dari loop
-    } catch(e) {
-      retries--;
-      console.error('loadUserData error:', e.message, '| Sisa retry:', retries);
-      if (retries > 0) {
-        await new Promise(r => setTimeout(r, 2000)); // tunggu 2s sebelum retry
-      } else {
-        // Gagal total — jangan lanjut, lempar error ke initApp
-        throw new Error('Gagal memuat data setelah beberapa percobaan: ' + e.message);
-      }
+    if (error) {
+      // Ada error Supabase — log tapi jangan crash, pakai state default supaya app tetap jalan
+      console.error('loadUserData error:', error.message);
+      state = state || getDefaultData();
+      return;
     }
+
+    if (!data || !data.data) {
+      // User baru, belum pernah punya data
+      state = getDefaultData();
+      saveData();
+    } else {
+      state = data.data;
+      if (!state.expCats || !state.expCats.length) state.expCats = DEFAULT_EXP_CATS;
+      else state.expCats = migrateCats(state.expCats, DEFAULT_EXP_CATS);
+      if (!state.incCats || !state.incCats.length) state.incCats = DEFAULT_INC_CATS;
+      else state.incCats = migrateCats(state.incCats, DEFAULT_INC_CATS);
+      if (state.cash === undefined) state.cash = 0;
+      if (!state.cashLog) state.cashLog = [];
+      if (!state.debts) state.debts = [];
+      if (!state.nextId) state.nextId = 100;
+      if (!state.transactions) state.transactions = [];
+      if (!state.accounts) state.accounts = [];
+      if (!state.budgets) state.budgets = [];
+      if (!state.goals) state.goals = [];
+    }
+  } catch(e) {
+    // Network error / timeout — log tapi jangan crash
+    console.error('loadUserData exception:', e.message);
+    state = state || getDefaultData();
   }
 }
 
@@ -3405,6 +3400,7 @@ async function initApp(user) {
   renderDashboard();
   showScreen('app');
 }
+
 
 let isAppLoaded = false;
 setTimeout(() => { if (!isAppLoaded) { const h=document.getElementById('loading-hint'); if(h) h.style.display='block'; } }, 3000);
