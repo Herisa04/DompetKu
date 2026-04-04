@@ -2362,7 +2362,9 @@ async function saveTx() {
     toast('✅ Transaksi disimpan');
   }
   editingTxId = null;
-  await saveData(); closeModal('tx-modal'); renderAll();
+  closeModal('tx-modal');
+  renderAll();
+  saveData(); // simpan ke Supabase di background
 }
 
 function openBudgetModal() {
