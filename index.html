@@ -1536,19 +1536,39 @@ async function loadUserData() {
   }
 }
 
-// Save dengan debounce + retry — tahan 400ms, gabung semua perubahan berturutan jadi 1 request
-let _saveTimer = null;
+// ============================================================
+// SAVE ENGINE — debounce + queue + retry, tidak ada data yang hilang
+// ============================================================
+// Cara kerja:
+// 1. saveData() dipanggil → langsung tandai "ada perubahan pending"
+// 2. Tunggu 600ms sejak panggilan TERAKHIR (debounce) → gabungkan semua perubahan berturutan
+// 3. Kirim ke Supabase — kalau sedang ada kiriman, tunggu dulu (queue)
+// 4. Kalau gagal → retry otomatis sampai 4x dengan jeda makin lama
+// 5. Tidak bisa macet permanen — selalu ada jalan keluar
+let _pendingSave = false;      // ada perubahan yang belum terkirim?
+let _saveDebounce = null;      // timer debounce
+let _saveRunning = false;      // sedang kirim ke Supabase?
 let _saveRetries = 0;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 4;
+const RETRY_DELAYS = [2000, 4000, 8000, 15000]; // ms
 
 function saveData() {
+  _pendingSave = true;
   setSyncing(true);
-  clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => _doSaveData(), 400);
+  // Reset timer debounce — tunggu 600ms sejak aksi terakhir
+  clearTimeout(_saveDebounce);
+  _saveDebounce = setTimeout(_flushSave, 600);
 }
 
-async function _doSaveData() {
-  if (!currentUser) { setSyncing(false); return; }
+async function _flushSave() {
+  // Kalau sedang kirim, jangan interupsi — nanti dicek lagi setelah selesai
+  if (_saveRunning) return;
+  if (!_pendingSave) { setSyncing(false); return; }
+  if (!currentUser) { _pendingSave = false; setSyncing(false); return; }
+
+  _saveRunning = true;
+  _pendingSave = false; // sudah "diambil", kalau ada perubahan baru akan set true lagi
+
   try {
     const snapshot = JSON.parse(JSON.stringify(state));
     const { error } = await sb.from('user_data').upsert(
@@ -1556,18 +1576,32 @@ async function _doSaveData() {
       { onConflict: 'user_id' }
     );
     if (error) throw new Error(error.message);
+
     _saveRetries = 0;
-    setSyncing(false);
+    _saveRunning = false;
+
+    // Ada perubahan baru masuk saat kita kirim? Langsung flush lagi
+    if (_pendingSave) {
+      clearTimeout(_saveDebounce);
+      _saveDebounce = setTimeout(_flushSave, 600);
+    } else {
+      setSyncing(false);
+    }
   } catch(e) {
     console.error('Save error:', e);
+    _saveRunning = false;
+    _pendingSave = true; // tandai perlu dikirim ulang
+
     if (_saveRetries < MAX_RETRIES) {
+      const delay = RETRY_DELAYS[_saveRetries];
       _saveRetries++;
-      console.log(`Retry simpan (${_saveRetries}/${MAX_RETRIES})...`);
-      _saveTimer = setTimeout(() => _doSaveData(), 1000 * _saveRetries);
+      console.log(`Retry simpan ke-${_saveRetries} dalam ${delay/1000}s...`);
+      _saveDebounce = setTimeout(_flushSave, delay);
     } else {
       _saveRetries = 0;
+      _pendingSave = false;
       setSyncing(false);
-      toast('⚠️ Gagal menyimpan, cek koneksi internet');
+      toast('⚠️ Gagal menyimpan ke server, cek koneksi internet');
     }
   }
 }
@@ -2143,7 +2177,9 @@ function addToGoal(id) {
   document.getElementById('add-goal-modal').classList.add('open');
 }
 
-async function saveAddGoal() {
+function saveAddGoal() {
+  if (_isSaving) return; _isSaving = true;
+  try {
   const id = parseInt(document.getElementById('add-goal-id').value);
   const amount = parseFloat(document.getElementById('add-goal-amount').value);
   if (!amount || amount <= 0) { toast('⚠️ Masukkan jumlah dana'); return; }
@@ -2163,9 +2199,10 @@ async function saveAddGoal() {
   } else {
     g.current = Math.min(g.target, g.current + amount);
     closeModal('add-goal-modal'); renderGoals();
-    saveData(); // background
+    saveData();
     toast(`✅ +${fmtShort(amount)} ditambahkan ke ${g.name}`);
   }
+  } finally { _isSaving = false; }
 }
 
 // ============================================================
@@ -2424,16 +2461,19 @@ function openBudgetModal() {
   bm.value = currentYM();
 }
 
-async function saveBudget() {
-  const cat = document.getElementById('bud-cat').value;
-  const amount = parseFloat(document.getElementById('bud-amount').value);
-  const month = document.getElementById('bud-month').value;
-  if (!amount||amount<=0) { toast('⚠️ Masukkan jumlah anggaran'); return; }
-  const existing = state.budgets.findIndex(b=>b.cat===cat&&b.month===month);
-  if (existing>=0) { state.budgets[existing].amount=amount; }
-  else { state.budgets.push({ id:++state.nextId, cat, amount, month }); }
-  closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran disimpan');
-  saveData(); // background
+function saveBudget() {
+  if (_isSaving) return; _isSaving = true;
+  try {
+    const cat = document.getElementById('bud-cat').value;
+    const amount = parseFloat(document.getElementById('bud-amount').value);
+    const month = document.getElementById('bud-month').value;
+    if (!amount||amount<=0) { toast('⚠️ Masukkan jumlah anggaran'); return; }
+    const existing = state.budgets.findIndex(b=>b.cat===cat&&b.month===month);
+    if (existing>=0) { state.budgets[existing].amount=amount; }
+    else { state.budgets.push({ id:++state.nextId, cat, amount, month }); }
+    closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran disimpan');
+    saveData();
+  } finally { _isSaving = false; }
 }
 
 function openAccountModal() {
@@ -2448,14 +2488,17 @@ function openAccountModal() {
   document.getElementById('acc-balance').value='';
 }
 
-async function saveAccount() {
-  const bank = document.getElementById('acc-bank').value;
-  const name = document.getElementById('acc-name').value.trim();
-  const number = document.getElementById('acc-number').value.trim();
-  const balance = parseFloat(document.getElementById('acc-balance').value)||0;
-  state.accounts.push({ id:++state.nextId, bank, name, number, balance });
-  closeModal('account-modal'); renderAccounts(); updateAccountSelects(); toast('✅ Rekening ditambahkan');
-  saveData(); // background
+function saveAccount() {
+  if (_isSaving) return; _isSaving = true;
+  try {
+    const bank = document.getElementById('acc-bank').value;
+    const name = document.getElementById('acc-name').value.trim();
+    const number = document.getElementById('acc-number').value.trim();
+    const balance = parseFloat(document.getElementById('acc-balance').value)||0;
+    state.accounts.push({ id:++state.nextId, bank, name, number, balance });
+    closeModal('account-modal'); renderAccounts(); updateAccountSelects(); toast('✅ Rekening ditambahkan');
+    saveData();
+  } finally { _isSaving = false; }
 }
 
 function openGoalModal() {
@@ -2492,17 +2535,20 @@ function populateGoalAccountSelect(selectedId) {
   });
 }
 
-async function saveGoal() {
-  const name = document.getElementById('goal-name').value.trim();
-  const icon = document.getElementById('goal-icon').value;
-  const target = parseFloat(document.getElementById('goal-target').value);
-  const current = parseFloat(document.getElementById('goal-current').value)||0;
-  const deadline = document.getElementById('goal-date').value;
-  const linkedAccount = document.getElementById('goal-account').value || '';
-  if (!name||!target||target<=0) { toast('⚠️ Lengkapi nama dan target'); return; }
-  state.goals.push({ id:++state.nextId, name, icon, target, current, deadline, linkedAccount });
-  closeModal('goal-modal'); renderGoals(); toast('✅ Target tabungan ditambahkan');
-  saveData(); // background
+function saveGoal() {
+  if (_isSaving) return; _isSaving = true;
+  try {
+    const name = document.getElementById('goal-name').value.trim();
+    const icon = document.getElementById('goal-icon').value;
+    const target = parseFloat(document.getElementById('goal-target').value);
+    const current = parseFloat(document.getElementById('goal-current').value)||0;
+    const deadline = document.getElementById('goal-date').value;
+    const linkedAccount = document.getElementById('goal-account').value || '';
+    if (!name||!target||target<=0) { toast('⚠️ Lengkapi nama dan target'); return; }
+    state.goals.push({ id:++state.nextId, name, icon, target, current, deadline, linkedAccount });
+    closeModal('goal-modal'); renderGoals(); toast('✅ Target tabungan ditambahkan');
+    saveData();
+  } finally { _isSaving = false; }
 }
 
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
@@ -2642,7 +2688,9 @@ function updateCatPreview() {
   document.getElementById('cat-preview-name').textContent = name;
 }
 
-async function saveCat() {
+function saveCat() {
+  if (_isSaving) return; _isSaving = true;
+  try {
   const name = document.getElementById('cat-name').value.trim();
   const icon = document.getElementById('cat-icon').value || catSelectedIcon;
   const color = document.getElementById('cat-color').value || catSelectedColor;
@@ -2671,9 +2719,10 @@ async function saveCat() {
   closeModal('cat-modal');
   renderCategories(); saveData();
   toast(`✅ Kategori "${name}" disimpan`);
+  } finally { _isSaving = false; }
 }
 
-async function deleteCat(type, name) {
+function deleteCat(type, name) {
   const inUse = state.transactions.some(t => t.cat === name && t.type === type);
   const doDelete = async () => {
     const key = type === 'exp' ? 'expCats' : 'incCats';
@@ -2708,21 +2757,23 @@ function editAccount(id) {
   document.getElementById('account-modal').classList.add('open');
 }
 
-async function saveEditAccount(id) {
-  const bank = document.getElementById('acc-bank').value;
-  const name = document.getElementById('acc-name').value.trim();
-  const number = document.getElementById('acc-number').value.trim();
-  const balance = parseFloat(document.getElementById('acc-balance').value)||0;
-  state.accounts = state.accounts.map(a => a.id===id ? {...a, bank, name, number, balance} : a);
-  // Also restore modal to add mode
-  document.querySelector('#account-modal .modal-title').textContent = 'Tambah Rekening';
-  const accBtn2 = document.getElementById('account-save-btn');
-  accBtn2.textContent = 'Simpan';
-  accBtn2.onclick = null;
-  accBtn2.setAttribute('onclick', 'saveAccount()');
-  closeModal('account-modal'); renderAccounts(); updateAccountSelects();
-  saveData(); // background
-  toast('✅ Rekening diperbarui');
+function saveEditAccount(id) {
+  if (_isSaving) return; _isSaving = true;
+  try {
+    const bank = document.getElementById('acc-bank').value;
+    const name = document.getElementById('acc-name').value.trim();
+    const number = document.getElementById('acc-number').value.trim();
+    const balance = parseFloat(document.getElementById('acc-balance').value)||0;
+    state.accounts = state.accounts.map(a => a.id===id ? {...a, bank, name, number, balance} : a);
+    document.querySelector('#account-modal .modal-title').textContent = 'Tambah Rekening';
+    const accBtn2 = document.getElementById('account-save-btn');
+    accBtn2.textContent = 'Simpan';
+    accBtn2.onclick = null;
+    accBtn2.setAttribute('onclick', 'saveAccount()');
+    closeModal('account-modal'); renderAccounts(); updateAccountSelects();
+    saveData();
+    toast('✅ Rekening diperbarui');
+  } finally { _isSaving = false; }
 }
 
 function editBudget(id) {
@@ -2739,19 +2790,22 @@ function editBudget(id) {
   budBtn.onclick = () => saveEditBudget(id);
 }
 
-async function saveEditBudget(id) {
-  const cat = document.getElementById('bud-cat').value;
-  const amount = parseFloat(document.getElementById('bud-amount').value);
-  const month = document.getElementById('bud-month').value;
-  if (!amount||amount<=0) { toast('⚠️ Masukkan jumlah anggaran'); return; }
-  state.budgets = state.budgets.map(b => b.id===id ? {...b, cat, amount, month} : b);
-  document.querySelector('#budget-modal .modal-title').textContent = 'Buat Anggaran';
-  const budBtn2 = document.getElementById('budget-save-btn');
-  budBtn2.textContent = 'Simpan';
-  budBtn2.onclick = null;
-  budBtn2.setAttribute('onclick', 'saveBudget()');
-  closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran diperbarui');
-  saveData(); // background
+function saveEditBudget(id) {
+  if (_isSaving) return; _isSaving = true;
+  try {
+    const cat = document.getElementById('bud-cat').value;
+    const amount = parseFloat(document.getElementById('bud-amount').value);
+    const month = document.getElementById('bud-month').value;
+    if (!amount||amount<=0) { toast('⚠️ Masukkan jumlah anggaran'); return; }
+    state.budgets = state.budgets.map(b => b.id===id ? {...b, cat, amount, month} : b);
+    document.querySelector('#budget-modal .modal-title').textContent = 'Buat Anggaran';
+    const budBtn2 = document.getElementById('budget-save-btn');
+    budBtn2.textContent = 'Simpan';
+    budBtn2.onclick = null;
+    budBtn2.setAttribute('onclick', 'saveBudget()');
+    closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran diperbarui');
+    saveData();
+  } finally { _isSaving = false; }
 }
 
 function editGoal(id) {
@@ -2772,22 +2826,25 @@ function editGoal(id) {
   goalBtn.onclick = () => saveEditGoal(id);
 }
 
-async function saveEditGoal(id) {
-  const name = document.getElementById('goal-name').value.trim();
-  const icon = document.getElementById('goal-icon').value;
-  const target = parseFloat(document.getElementById('goal-target').value);
-  const current = parseFloat(document.getElementById('goal-current').value)||0;
-  const deadline = document.getElementById('goal-date').value;
-  if (!name||!target||target<=0) { toast('⚠️ Lengkapi nama dan target'); return; }
-  const linkedAccount = document.getElementById('goal-account').value || '';
-  state.goals = state.goals.map(g => g.id===id ? {...g, name, icon, target, current, deadline, linkedAccount} : g);
-  document.querySelector('#goal-modal .modal-title').textContent = 'Target Tabungan Baru';
-  const goalBtn2 = document.getElementById('goal-save-btn');
-  goalBtn2.textContent = 'Simpan';
-  goalBtn2.onclick = null;
-  goalBtn2.setAttribute('onclick', 'saveGoal()');
-  closeModal('goal-modal'); renderGoals(); toast('✅ Target diperbarui');
-  saveData(); // background
+function saveEditGoal(id) {
+  if (_isSaving) return; _isSaving = true;
+  try {
+    const name = document.getElementById('goal-name').value.trim();
+    const icon = document.getElementById('goal-icon').value;
+    const target = parseFloat(document.getElementById('goal-target').value);
+    const current = parseFloat(document.getElementById('goal-current').value)||0;
+    const deadline = document.getElementById('goal-date').value;
+    if (!name||!target||target<=0) { toast('⚠️ Lengkapi nama dan target'); return; }
+    const linkedAccount = document.getElementById('goal-account').value || '';
+    state.goals = state.goals.map(g => g.id===id ? {...g, name, icon, target, current, deadline, linkedAccount} : g);
+    document.querySelector('#goal-modal .modal-title').textContent = 'Target Tabungan Baru';
+    const goalBtn2 = document.getElementById('goal-save-btn');
+    goalBtn2.textContent = 'Simpan';
+    goalBtn2.onclick = null;
+    goalBtn2.setAttribute('onclick', 'saveGoal()');
+    closeModal('goal-modal'); renderGoals(); toast('✅ Target diperbarui');
+    saveData();
+  } finally { _isSaving = false; }
 }
 
 // ============================================================
@@ -2931,14 +2988,18 @@ function openEditCashBalance() {
   document.getElementById('cash-adjust-modal').classList.add('open');
 }
 
-async function saveCashAdjust() {
-  const newAmount = parseFloat(document.getElementById('cash-adjust-amount').value);
-  if (isNaN(newAmount) || newAmount < 0) { toast('⚠️ Masukkan jumlah yang valid'); return; }
-  state.cash = newAmount;
-  closeModal('cash-adjust-modal');
-  renderCash();
-  renderDashboard();
-  toast(`✅ Saldo cash diperbarui: ${fmtShort(newAmount)}`); saveData();
+function saveCashAdjust() {
+  if (_isSaving) return; _isSaving = true;
+  try {
+    const newAmount = parseFloat(document.getElementById('cash-adjust-amount').value);
+    if (isNaN(newAmount) || newAmount < 0) { toast('⚠️ Masukkan jumlah yang valid'); return; }
+    state.cash = newAmount;
+    closeModal('cash-adjust-modal');
+    renderCash();
+    renderDashboard();
+    toast(`✅ Saldo cash diperbarui: ${fmtShort(newAmount)}`);
+    saveData();
+  } finally { _isSaving = false; }
 }
 
 async function deleteCashLog(id) {
@@ -3131,30 +3192,36 @@ function closeDebtModal() {
 }
 
 async function saveDebt() {
-  const name = document.getElementById('debt-name').value.trim();
-  const amount = parseFloat(document.getElementById('debt-amount').value);
-  const desc = document.getElementById('debt-desc').value.trim();
-  const date = document.getElementById('debt-date').value;
-  const due = document.getElementById('debt-due').value;
-  if (!name) { toast('⚠️ Masukkan nama'); return; }
-  if (!amount || amount <= 0) { toast('⚠️ Masukkan jumlah'); return; }
-  if (!state.debts) state.debts = [];
+  if (_isSaving) return;
+  _isSaving = true;
+  try {
+    const name = document.getElementById('debt-name').value.trim();
+    const amount = parseFloat(document.getElementById('debt-amount').value);
+    const desc = document.getElementById('debt-desc').value.trim();
+    const date = document.getElementById('debt-date').value;
+    const due = document.getElementById('debt-due').value;
+    if (!name) { toast('⚠️ Masukkan nama'); return; }
+    if (!amount || amount <= 0) { toast('⚠️ Masukkan jumlah'); return; }
+    if (!state.debts) state.debts = [];
 
-  if (editingDebtId !== null) {
-    state.debts = state.debts.map(d => d.id == editingDebtId
-      ? {...d, debtType: currentDebtModalType, name, amount, desc, date, due}
-      : d);
-    toast('✅ Data diperbarui');
-  } else {
-    state.debts.push({
-      id: ++state.nextId,
-      debtType: currentDebtModalType,
-      name, amount, desc, date, due,
-      paidAmount: 0, payments: [], status: 'aktif'
-    });
-    toast('✅ Data disimpan');
+    if (editingDebtId !== null) {
+      state.debts = state.debts.map(d => d.id == editingDebtId
+        ? {...d, debtType: currentDebtModalType, name, amount, desc, date, due}
+        : d);
+      toast('✅ Data diperbarui');
+    } else {
+      state.debts.push({
+        id: ++state.nextId,
+        debtType: currentDebtModalType,
+        name, amount, desc, date, due,
+        paidAmount: 0, payments: [], status: 'aktif'
+      });
+      toast('✅ Data disimpan');
+    }
+    closeDebtModal(); renderDebts(); saveData();
+  } finally {
+    _isSaving = false;
   }
-  closeDebtModal(); renderDebts(); saveData();
 }
 
 let editingPaymentIdx = null;
@@ -3206,34 +3273,35 @@ async function deletePayment(debtId, payIdx) {
   });
 }
 
-async function saveDebtPayment() {
-  const amount = parseFloat(document.getElementById('debt-pay-amount').value);
-  const date = document.getElementById('debt-pay-date').value;
-  const desc = document.getElementById('debt-pay-desc').value.trim();
-  if (!amount || amount <= 0) { toast('⚠️ Masukkan jumlah'); return; }
-  if (!state.debts) state.debts = [];
-
-  state.debts = state.debts.map(d => {
-    if (d.id != payingDebtId) return d;  // == intentional: string vs number safe
-    let payments = [...(d.payments||[])];
-    if (editingPaymentIdx !== null) {
-      payments[editingPaymentIdx] = { amount, date, desc: desc || 'Pembayaran' };
-    } else {
-      payments = [...payments, { amount, date, desc: desc || 'Pembayaran' }];
-    }
-    const newPaid = payments.reduce((s, p) => s + p.amount, 0);
-    const status = newPaid >= d.amount ? 'lunas' : 'aktif';
-    return {...d, paidAmount: newPaid, payments, status};
-  });
-
-  payingDebtId = null;
-  editingPaymentIdx = null;
-  closeModal('debt-pay-modal'); renderDebts();
-  saveData(); // background
-  toast('✅ Pembayaran disimpan');
+function saveDebtPayment() {
+  if (_isSaving) return; _isSaving = true;
+  try {
+    const amount = parseFloat(document.getElementById('debt-pay-amount').value);
+    const date = document.getElementById('debt-pay-date').value;
+    const desc = document.getElementById('debt-pay-desc').value.trim();
+    if (!amount || amount <= 0) { toast('⚠️ Masukkan jumlah'); return; }
+    if (!state.debts) state.debts = [];
+    state.debts = state.debts.map(d => {
+      if (d.id != payingDebtId) return d;
+      let payments = [...(d.payments||[])];
+      if (editingPaymentIdx !== null) {
+        payments[editingPaymentIdx] = { amount, date, desc: desc || 'Pembayaran' };
+      } else {
+        payments = [...payments, { amount, date, desc: desc || 'Pembayaran' }];
+      }
+      const newPaid = payments.reduce((s, p) => s + p.amount, 0);
+      const status = newPaid >= d.amount ? 'lunas' : 'aktif';
+      return {...d, paidAmount: newPaid, payments, status};
+    });
+    payingDebtId = null;
+    editingPaymentIdx = null;
+    closeModal('debt-pay-modal'); renderDebts();
+    saveData();
+    toast('✅ Pembayaran disimpan');
+  } finally { _isSaving = false; }
 }
 
-async function markDebtLunas(id) {
+function markDebtLunas(id) {
   state.debts = state.debts.map(d => d.id == id ? {...d, status:'lunas', paidAmount: d.amount} : d);
   renderDebts(); toast('✅ Ditandai lunas'); saveData();
 }
