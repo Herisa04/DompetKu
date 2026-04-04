@@ -2732,7 +2732,7 @@ function deleteCat(type, name) {
   };
   if (inUse) {
     showConfirm(`Kategori "${name}" dipakai beberapa transaksi. Tetap hapus?`, 'Hapus Kategori').then(async ok => { if(ok) await doDelete(); });
-  } else { await doDelete(); }
+  } else { doDelete(); }
 }
 
 // Listen to name input changes for preview
