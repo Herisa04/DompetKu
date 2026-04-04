@@ -1536,22 +1536,40 @@ async function loadUserData() {
   }
 }
 
-// Save queue — mencegah race condition ketika saveData() dipanggil berturut-turut
-let _saveQueue = Promise.resolve();
+// Save dengan debounce + retry — tahan 400ms, gabung semua perubahan berturutan jadi 1 request
+let _saveTimer = null;
+let _saveRetries = 0;
+const MAX_RETRIES = 3;
+
 function saveData() {
-  _saveQueue = _saveQueue.then(() => _doSaveData());
-  return _saveQueue;
-}
-async function _doSaveData() {
-  if (!currentUser) return;
   setSyncing(true);
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => _doSaveData(), 400);
+}
+
+async function _doSaveData() {
+  if (!currentUser) { setSyncing(false); return; }
   try {
-    // Ambil snapshot state SAAT INI (bukan saat dipanggil) supaya selalu data terbaru
     const snapshot = JSON.parse(JSON.stringify(state));
-    const { error } = await sb.from('user_data').upsert({ user_id: currentUser.id, data: snapshot, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-    if (error) console.error('Supabase save error:', error.message, error);
-  } catch(e) { console.error('Save error:', e); }
-  setSyncing(false);
+    const { error } = await sb.from('user_data').upsert(
+      { user_id: currentUser.id, data: snapshot, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+    if (error) throw new Error(error.message);
+    _saveRetries = 0;
+    setSyncing(false);
+  } catch(e) {
+    console.error('Save error:', e);
+    if (_saveRetries < MAX_RETRIES) {
+      _saveRetries++;
+      console.log(`Retry simpan (${_saveRetries}/${MAX_RETRIES})...`);
+      _saveTimer = setTimeout(() => _doSaveData(), 1000 * _saveRetries);
+    } else {
+      _saveRetries = 0;
+      setSyncing(false);
+      toast('⚠️ Gagal menyimpan, cek koneksi internet');
+    }
+  }
 }
 
 function getDefaultData() {
