@@ -1181,7 +1181,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('budget-modal')">Batal</button>
-      <button class="btn btn-primary" onclick="saveBudget()">Simpan</button>
+      <button class="btn btn-primary" id="budget-save-btn" onclick="saveBudget()">Simpan</button>
     </div>
   </div>
 </div>
@@ -1327,7 +1327,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('account-modal')">Batal</button>
-      <button class="btn btn-primary" onclick="saveAccount()">Simpan</button>
+      <button class="btn btn-primary" id="account-save-btn" onclick="saveAccount()">Simpan</button>
     </div>
   </div>
 </div>
@@ -1371,7 +1371,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('goal-modal')">Batal</button>
-      <button class="btn btn-primary" onclick="saveGoal()">Simpan</button>
+      <button class="btn btn-primary" id="goal-save-btn" onclick="saveGoal()">Simpan</button>
     </div>
   </div>
 </div>
@@ -2369,8 +2369,10 @@ function openBudgetModal() {
   document.getElementById('budget-modal').classList.add('open');
   // Reset modal ke mode tambah (bukan edit)
   document.querySelector('#budget-modal .modal-title').textContent = 'Buat Anggaran';
-  document.querySelector('#budget-modal .btn-primary').textContent = 'Simpan';
-  document.querySelector('#budget-modal .btn-primary').onclick = saveBudget;
+  const budBtn2 = document.getElementById('budget-save-btn');
+  budBtn2.textContent = 'Simpan';
+  budBtn2.onclick = null;
+  budBtn2.setAttribute('onclick', 'saveBudget()');
   const sel = document.getElementById('bud-cat');
   sel.innerHTML = getExpCats().map(c=>`<option value="${c.name}">${c.icon} ${c.name}</option>`).join('');
   document.getElementById('bud-amount').value='';
@@ -2401,8 +2403,10 @@ async function saveBudget() {
 function openAccountModal() {
   document.getElementById('account-modal').classList.add('open');
   document.querySelector('#account-modal .modal-title').textContent = 'Tambah Rekening';
-  document.querySelector('#account-modal .btn-primary').textContent = 'Simpan';
-  document.querySelector('#account-modal .btn-primary').onclick = saveAccount;
+  const accBtn2 = document.getElementById('account-save-btn');
+  accBtn2.textContent = 'Simpan';
+  accBtn2.onclick = null;
+  accBtn2.setAttribute('onclick', 'saveAccount()');
   document.getElementById('acc-name').value='';
   document.getElementById('acc-number').value='';
   document.getElementById('acc-balance').value='';
@@ -2420,8 +2424,10 @@ async function saveAccount() {
 function openGoalModal() {
   document.getElementById('goal-modal').classList.add('open');
   document.querySelector('#goal-modal .modal-title').textContent = 'Target Tabungan Baru';
-  document.querySelector('#goal-modal .btn-primary').textContent = 'Simpan';
-  document.querySelector('#goal-modal .btn-primary').onclick = saveGoal;
+  const goalBtn2 = document.getElementById('goal-save-btn');
+  goalBtn2.textContent = 'Simpan';
+  goalBtn2.onclick = null;
+  goalBtn2.setAttribute('onclick', 'saveGoal()');
   document.getElementById('goal-name').value='';
   document.getElementById('goal-icon').value='✈️';
   document.getElementById('goal-target').value='';
@@ -2658,8 +2664,10 @@ function editAccount(id) {
   document.getElementById('acc-balance').value = a.balance;
   // Change modal title and button
   document.querySelector('#account-modal .modal-title').textContent = 'Edit Rekening';
-  document.querySelector('#account-modal .btn-primary').textContent = 'Simpan Perubahan';
-  document.querySelector('#account-modal .btn-primary').onclick = () => saveEditAccount(id);
+  const accBtn = document.getElementById('account-save-btn');
+  accBtn.textContent = 'Simpan Perubahan';
+  accBtn.removeAttribute('onclick');
+  accBtn.onclick = () => saveEditAccount(id);
   document.getElementById('account-modal').classList.add('open');
 }
 
@@ -2671,8 +2679,10 @@ async function saveEditAccount(id) {
   state.accounts = state.accounts.map(a => a.id===id ? {...a, bank, name, number, balance} : a);
   // Also restore modal to add mode
   document.querySelector('#account-modal .modal-title').textContent = 'Tambah Rekening';
-  document.querySelector('#account-modal .btn-primary').textContent = 'Simpan';
-  document.querySelector('#account-modal .btn-primary').onclick = saveAccount;
+  const accBtn2 = document.getElementById('account-save-btn');
+  accBtn2.textContent = 'Simpan';
+  accBtn2.onclick = null;
+  accBtn2.setAttribute('onclick', 'saveAccount()');
   await saveData(); closeModal('account-modal'); renderAccounts(); updateAccountSelects();
   toast('✅ Rekening diperbarui');
 }
@@ -2685,8 +2695,10 @@ function editBudget(id) {
   document.getElementById('bud-amount').value = b.amount;
   document.getElementById('bud-month').value = b.month;
   document.querySelector('#budget-modal .modal-title').textContent = 'Edit Anggaran';
-  document.querySelector('#budget-modal .btn-primary').textContent = 'Simpan Perubahan';
-  document.querySelector('#budget-modal .btn-primary').onclick = () => saveEditBudget(id);
+  const budBtn = document.getElementById('budget-save-btn');
+  budBtn.textContent = 'Simpan Perubahan';
+  budBtn.removeAttribute('onclick');
+  budBtn.onclick = () => saveEditBudget(id);
 }
 
 async function saveEditBudget(id) {
@@ -2696,8 +2708,10 @@ async function saveEditBudget(id) {
   if (!amount||amount<=0) { toast('⚠️ Masukkan jumlah anggaran'); return; }
   state.budgets = state.budgets.map(b => b.id===id ? {...b, cat, amount, month} : b);
   document.querySelector('#budget-modal .modal-title').textContent = 'Buat Anggaran';
-  document.querySelector('#budget-modal .btn-primary').textContent = 'Simpan';
-  document.querySelector('#budget-modal .btn-primary').onclick = saveBudget;
+  const budBtn2 = document.getElementById('budget-save-btn');
+  budBtn2.textContent = 'Simpan';
+  budBtn2.onclick = null;
+  budBtn2.setAttribute('onclick', 'saveBudget()');
   await saveData(); closeModal('budget-modal'); renderBudget(); toast('✅ Anggaran diperbarui');
 }
 
@@ -2713,8 +2727,10 @@ function editGoal(id) {
   populateGoalAccountSelect(g.linkedAccount||'');
   toggleGoalCurrentField(g.linkedAccount||'');
   document.querySelector('#goal-modal .modal-title').textContent = 'Edit Target';
-  document.querySelector('#goal-modal .btn-primary').textContent = 'Simpan Perubahan';
-  document.querySelector('#goal-modal .btn-primary').onclick = () => saveEditGoal(id);
+  const goalBtn = document.getElementById('goal-save-btn');
+  goalBtn.textContent = 'Simpan Perubahan';
+  goalBtn.removeAttribute('onclick');
+  goalBtn.onclick = () => saveEditGoal(id);
 }
 
 async function saveEditGoal(id) {
@@ -2727,8 +2743,10 @@ async function saveEditGoal(id) {
   const linkedAccount = document.getElementById('goal-account').value || '';
   state.goals = state.goals.map(g => g.id===id ? {...g, name, icon, target, current, deadline, linkedAccount} : g);
   document.querySelector('#goal-modal .modal-title').textContent = 'Target Tabungan Baru';
-  document.querySelector('#goal-modal .btn-primary').textContent = 'Simpan';
-  document.querySelector('#goal-modal .btn-primary').onclick = saveGoal;
+  const goalBtn2 = document.getElementById('goal-save-btn');
+  goalBtn2.textContent = 'Simpan';
+  goalBtn2.onclick = null;
+  goalBtn2.setAttribute('onclick', 'saveGoal()');
   await saveData(); closeModal('goal-modal'); renderGoals(); toast('✅ Target diperbarui');
 }
 
