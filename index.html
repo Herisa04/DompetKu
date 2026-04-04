@@ -1930,9 +1930,8 @@ async function deleteTx(id) {
     const t = state.transactions.find(t=>t.id===id);
     if (t) updateCashFromTx(t.type, t.amount, t.account, true, t.desc, t.date, id);
     state.transactions = state.transactions.filter(t=>t.id!==id);
-    await saveData();
     renderAll();
-    toast('🗑 Transaksi dihapus');
+    toast('🗑 Transaksi dihapus'); saveData();
   });
 }
 
@@ -1989,7 +1988,7 @@ async function deleteBudget(id) {
   showConfirm('Hapus anggaran ini?', 'Hapus Anggaran', '🗑️', 'Ya, Hapus').then(async ok => {
     if (!ok) return;
     state.budgets = state.budgets.filter(b=>b.id!==id);
-    await saveData(); renderBudget(); toast('🗑 Anggaran dihapus');
+    renderBudget(); toast('🗑 Anggaran dihapus'); saveData();
   });
 }
 
@@ -2054,7 +2053,7 @@ async function deleteAccount(id) {
     state.accounts = state.accounts.filter(a=>a.id!==id);
     // Hapus link di target tabungan yang pakai rekening ini
     state.goals = state.goals.map(g => g.linkedAccount && String(g.linkedAccount)===String(id) ? {...g, linkedAccount:''} : g);
-    await saveData(); renderAccounts(); updateAccountSelects(); toast('🗑 Rekening dihapus');
+    renderAccounts(); updateAccountSelects(); toast('🗑 Rekening dihapus'); saveData();
   });
 }
 
@@ -2112,7 +2111,7 @@ async function deleteGoal(id) {
   showConfirm(`Hapus target "${g.name}"?`, 'Hapus Target', '🗑️', 'Ya, Hapus').then(async ok => {
     if (!ok) return;
     state.goals = state.goals.filter(g=>g.id!==id);
-    await saveData(); renderGoals(); toast('🗑 Target dihapus');
+    renderGoals(); toast('🗑 Target dihapus'); saveData();
   });
 }
 
@@ -2651,9 +2650,8 @@ async function saveCat() {
     cats.push({ name, icon, color });
   }
   state[key] = cats;
-  await saveData();
   closeModal('cat-modal');
-  renderCategories();
+  renderCategories(); saveData();
   toast(`✅ Kategori "${name}" disimpan`);
 }
 
@@ -2663,7 +2661,7 @@ async function deleteCat(type, name) {
     const key = type === 'exp' ? 'expCats' : 'incCats';
     const base = type === 'exp' ? DEFAULT_EXP_CATS : DEFAULT_INC_CATS;
     state[key] = (state[key] && state[key].length ? state[key] : base).filter(c => c.name !== name);
-    await saveData(); renderCategories(); toast(`🗑 Kategori dihapus`);
+    renderCategories(); toast(`🗑 Kategori dihapus`); saveData();
   };
   if (inUse) {
     showConfirm(`Kategori "${name}" dipakai beberapa transaksi. Tetap hapus?`, 'Hapus Kategori').then(async ok => { if(ok) await doDelete(); });
@@ -2919,11 +2917,10 @@ async function saveCashAdjust() {
   const newAmount = parseFloat(document.getElementById('cash-adjust-amount').value);
   if (isNaN(newAmount) || newAmount < 0) { toast('⚠️ Masukkan jumlah yang valid'); return; }
   state.cash = newAmount;
-  await saveData();
   closeModal('cash-adjust-modal');
   renderCash();
   renderDashboard();
-  toast(`✅ Saldo cash diperbarui: ${fmtShort(newAmount)}`);
+  toast(`✅ Saldo cash diperbarui: ${fmtShort(newAmount)}`); saveData();
 }
 
 async function deleteCashLog(id) {
@@ -2936,7 +2933,7 @@ async function deleteCashLog(id) {
     state.cash = (state.cash||0) + log.amount;
   }
   state.cashLog = state.cashLog.filter(l=>l.id!==id);
-  await saveData(); renderCash(); renderDashboard();
+  renderCash(); renderDashboard(); saveData();
   toast('🗑 Riwayat cash dihapus');
 }
 
@@ -2945,7 +2942,7 @@ async function clearCashLog() {
   showConfirm('Hapus semua riwayat cash?', 'Hapus Riwayat', '🗑️', 'Ya, Hapus').then(async ok => {
     if (!ok) return;
     state.cashLog = [];
-    await saveData(); renderCash();
+    renderCash(); saveData();
     toast('🗑 Riwayat cash dihapus');
   });
 }
@@ -3139,7 +3136,7 @@ async function saveDebt() {
     });
     toast('✅ Data disimpan');
   }
-  await saveData(); closeDebtModal(); renderDebts();
+  closeDebtModal(); renderDebts(); saveData();
 }
 
 let editingPaymentIdx = null;
@@ -3187,7 +3184,7 @@ async function deletePayment(debtId, payIdx) {
       const status = newPaid >= d.amount ? 'lunas' : 'aktif';
       return {...d, payments, paidAmount: newPaid, status};
     });
-    await saveData(); renderDebts(); toast('🗑 Riwayat bayar dihapus');
+    renderDebts(); toast('🗑 Riwayat bayar dihapus'); saveData();
   });
 }
 
@@ -3220,14 +3217,14 @@ async function saveDebtPayment() {
 
 async function markDebtLunas(id) {
   state.debts = state.debts.map(d => d.id == id ? {...d, status:'lunas', paidAmount: d.amount} : d);
-  await saveData(); renderDebts(); toast('✅ Ditandai lunas');
+  renderDebts(); toast('✅ Ditandai lunas'); saveData();
 }
 
 async function deleteDebt(id) {
   showConfirm('Hapus data hutang/piutang ini?', 'Hapus Data', '🗑️', 'Ya, Hapus').then(async ok => {
     if (!ok) return;
     state.debts = state.debts.filter(d => d.id != id);
-    await saveData(); renderDebts(); toast('🗑 Data dihapus');
+    renderDebts(); toast('🗑 Data dihapus'); saveData();
   });
 }
 
