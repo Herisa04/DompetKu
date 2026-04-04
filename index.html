@@ -1514,94 +1514,102 @@ function migrateCats(existing, defaults) {
 }
 
 async function loadUserData() {
-  const { data, error } = await sb.from('user_data').select('data').eq('user_id', currentUser.id).maybeSingle();
-  if (!data || !data.data) {
-    // First time user OR no data yet — create empty default
-    state = getDefaultData();
-    await saveData();
-  } else {
-    state = data.data;
-    if (!state.expCats || !state.expCats.length) state.expCats = DEFAULT_EXP_CATS;
-    else state.expCats = migrateCats(state.expCats, DEFAULT_EXP_CATS);
-    if (!state.incCats || !state.incCats.length) state.incCats = DEFAULT_INC_CATS;
-    else state.incCats = migrateCats(state.incCats, DEFAULT_INC_CATS);
-    if (state.cash === undefined) state.cash = 0;
-    if (!state.cashLog) state.cashLog = [];
-    if (!state.debts) state.debts = [];
-    if (!state.nextId) state.nextId = 100;
-    if (!state.transactions) state.transactions = [];
-    if (!state.accounts) state.accounts = [];
-    if (!state.budgets) state.budgets = [];
-    if (!state.goals) state.goals = [];
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      const { data, error } = await sb.from('user_data').select('data').eq('user_id', currentUser.id).maybeSingle();
+
+      // Kalau ada error dari Supabase — JANGAN reset data, throw supaya bisa di-retry
+      if (error) throw new Error('Supabase load error: ' + error.message);
+
+      if (!data || !data.data) {
+        // Benar-benar user baru, belum pernah simpan data
+        state = getDefaultData();
+        await _doSave(); // langsung save, pastikan row terbentuk
+      } else {
+        state = data.data;
+        if (!state.expCats || !state.expCats.length) state.expCats = DEFAULT_EXP_CATS;
+        else state.expCats = migrateCats(state.expCats, DEFAULT_EXP_CATS);
+        if (!state.incCats || !state.incCats.length) state.incCats = DEFAULT_INC_CATS;
+        else state.incCats = migrateCats(state.incCats, DEFAULT_INC_CATS);
+        if (state.cash === undefined) state.cash = 0;
+        if (!state.cashLog) state.cashLog = [];
+        if (!state.debts) state.debts = [];
+        if (!state.nextId) state.nextId = 100;
+        if (!state.transactions) state.transactions = [];
+        if (!state.accounts) state.accounts = [];
+        if (!state.budgets) state.budgets = [];
+        if (!state.goals) state.goals = [];
+      }
+      return; // sukses, keluar dari loop
+    } catch(e) {
+      retries--;
+      console.error('loadUserData error:', e.message, '| Sisa retry:', retries);
+      if (retries > 0) {
+        await new Promise(r => setTimeout(r, 2000)); // tunggu 2s sebelum retry
+      } else {
+        // Gagal total — jangan lanjut, lempar error ke initApp
+        throw new Error('Gagal memuat data setelah beberapa percobaan: ' + e.message);
+      }
+    }
   }
 }
 
 // ============================================================
-// SAVE ENGINE — debounce + queue + retry, tidak ada data yang hilang
+// SAVE ENGINE — sequential queue, tidak ada data yang hilang
 // ============================================================
 // Cara kerja:
-// 1. saveData() dipanggil → langsung tandai "ada perubahan pending"
-// 2. Tunggu 600ms sejak panggilan TERAKHIR (debounce) → gabungkan semua perubahan berturutan
-// 3. Kirim ke Supabase — kalau sedang ada kiriman, tunggu dulu (queue)
-// 4. Kalau gagal → retry otomatis sampai 4x dengan jeda makin lama
-// 5. Tidak bisa macet permanen — selalu ada jalan keluar
-let _pendingSave = false;      // ada perubahan yang belum terkirim?
-let _saveDebounce = null;      // timer debounce
-let _saveRunning = false;      // sedang kirim ke Supabase?
-let _saveRetries = 0;
-const MAX_RETRIES = 4;
-const RETRY_DELAYS = [2000, 4000, 8000, 15000]; // ms
+// - saveData() selalu antri ke _saveQueue (Promise chain)
+// - Setiap save tunggu giliran, tidak bisa overlap
+// - Snapshot diambil SAAT GILIRAN TIBA (bukan saat dipanggil)
+//   → selalu data paling baru yang terkirim
+// - Retry otomatis 3x kalau gagal
+// - Status "Tersinkron" HANYA muncul setelah benar-benar sukses
+
+let _saveQueue = Promise.resolve();
+let _saveCount = 0; // berapa save yang sedang antri
 
 function saveData() {
-  _pendingSave = true;
+  _saveCount++;
   setSyncing(true);
-  // Reset timer debounce — tunggu 600ms sejak aksi terakhir
-  clearTimeout(_saveDebounce);
-  _saveDebounce = setTimeout(_flushSave, 600);
+  _saveQueue = _saveQueue.then(() => _doSave()).catch(() => {});
 }
 
-async function _flushSave() {
-  // Kalau sedang kirim, jangan interupsi — nanti dicek lagi setelah selesai
-  if (_saveRunning) return;
-  if (!_pendingSave) { setSyncing(false); return; }
-  if (!currentUser) { _pendingSave = false; setSyncing(false); return; }
+async function _doSave() {
+  _saveCount = Math.max(0, _saveCount - 1);
+  if (!currentUser) { if (_saveCount === 0) setSyncing(false); return; }
 
-  _saveRunning = true;
-  _pendingSave = false; // sudah "diambil", kalau ada perubahan baru akan set true lagi
-
-  try {
-    const snapshot = JSON.parse(JSON.stringify(state));
-    const { error } = await sb.from('user_data').upsert(
-      { user_id: currentUser.id, data: snapshot, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id' }
-    );
-    if (error) throw new Error(error.message);
-
-    _saveRetries = 0;
-    _saveRunning = false;
-
-    // Ada perubahan baru masuk saat kita kirim? Langsung flush lagi
-    if (_pendingSave) {
-      clearTimeout(_saveDebounce);
-      _saveDebounce = setTimeout(_flushSave, 600);
-    } else {
-      setSyncing(false);
-    }
-  } catch(e) {
-    console.error('Save error:', e);
-    _saveRunning = false;
-    _pendingSave = true; // tandai perlu dikirim ulang
-
-    if (_saveRetries < MAX_RETRIES) {
-      const delay = RETRY_DELAYS[_saveRetries];
-      _saveRetries++;
-      console.log(`Retry simpan ke-${_saveRetries} dalam ${delay/1000}s...`);
-      _saveDebounce = setTimeout(_flushSave, delay);
-    } else {
-      _saveRetries = 0;
-      _pendingSave = false;
-      setSyncing(false);
-      toast('⚠️ Gagal menyimpan ke server, cek koneksi internet');
+  const MAX_RETRY = 3;
+  for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+    try {
+      // Ambil snapshot state SAAT INI — selalu data terlengkap
+      const snapshot = JSON.parse(JSON.stringify(state));
+      const { data, error } = await sb.from('user_data').upsert(
+        { user_id: currentUser.id, data: snapshot, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' }
+      );
+      if (error) {
+        // Log detail error Supabase supaya mudah di-debug
+        console.error('Supabase upsert error:', JSON.stringify(error));
+        throw new Error(error.message || error.code || JSON.stringify(error));
+      }
+      // Sukses — update status hanya kalau tidak ada antrian lain
+      if (_saveCount === 0) setSyncing(false);
+      return;
+    } catch(e) {
+      const msg = e.message || String(e);
+      console.error(`Save attempt ${attempt + 1}/${MAX_RETRY + 1} failed:`, msg);
+      if (attempt < MAX_RETRY) {
+        const delay = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+        console.log(`Retry dalam ${delay/1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        // Semua retry habis — tampilkan error dengan detail
+        if (_saveCount === 0) {
+          setSyncing(false);
+          toast('⚠️ Gagal menyimpan: ' + msg.slice(0, 60));
+        }
+      }
     }
   }
 }
